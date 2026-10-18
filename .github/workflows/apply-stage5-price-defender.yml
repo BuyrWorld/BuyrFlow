@@ -5,7 +5,7 @@ on:
     branches:
       - ux-simplification-v091
     paths:
-      - scripts/apply-stage5-price-defender.mjs
+      - scripts/apply-stage5-price-defender.py
 
 permissions:
   contents: write
@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 24
       - name: Apply Stage 5 source transformation
-        run: node scripts/apply-stage5-price-defender.mjs
+        run: python3 scripts/apply-stage5-price-defender.py
       - name: Run complete BuyrFlow audit
         run: npm run check
       - name: Check patch integrity
