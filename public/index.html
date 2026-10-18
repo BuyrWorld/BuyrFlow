@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0B1014">
+<title>BuyrWorld</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip-link" href="#app">Skip to content</a>
+<div class="app-shell">
+  <aside id="sidebar" class="sidebar">
+    <a class="brand" href="/"><img src="/buyrworld-logo.png" alt="BuyrWorld" width="168" height="47"><small>Evidence-led procurement OS</small></a>
+    <nav class="side-section side-nav" aria-label="Workspace">
+      <div class="side-label">Workspace</div>
+      <a href="/" data-nav="today"><span class="icon" aria-hidden="true">⌂</span>Today</a>
+      <a href="/cases" data-nav="cases"><span class="icon" aria-hidden="true">◫</span>Cases</a>
+      <a href="/flow" data-nav="flow"><span class="icon" aria-hidden="true">→</span>BuyrFlow</a>
+      <a href="/suppliers" data-nav="suppliers"><span class="icon" aria-hidden="true">◎</span>Suppliers</a>
+      <a href="/decisions" data-nav="decisions"><span class="icon" aria-hidden="true">✓</span>Decisions</a>
+    </nav>
+    <div class="side-foot">Flagship foundation · Release A v0.8.1<br>Evidence before automation.</div>
+  </aside>
+  <section class="workspace">
+    <header class="topbar">
+      <button id="menu" class="bw-action-secondary mobile-menu" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+      <div class="search"><label class="sr-only" for="global-search">Search cases, suppliers and actions</label><input id="global-search" placeholder="Search cases, suppliers or actions…" autocomplete="off"></div>
+      <div class="top-state"><span class="live-dot" aria-hidden="true"></span> synthetic review workspace</div>
+    </header>
+    <div id="banner" role="alert" hidden></div>
+    <!-- In the flow, under the topbar: an alert is the one message a person
+         must read, and pinning it over the page hid the case title it was
+         talking about. It now pushes the content down instead. -->
+    <div id="alert-region" class="alert-region" role="alert" aria-live="assertive"></div>
+    <main id="app" class="content" tabindex="-1"><noscript><div class="callout"><strong>JavaScript is required for the working workspace.</strong></div></noscript></main>
+  </section>
+</div>
+<div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
