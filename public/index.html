@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/simple-mode.css">
 </head>
 <body>
 <a class="skip-link" href="#app">Skip to content</a>
@@ -31,14 +32,12 @@
       <div class="top-state"><span class="live-dot" aria-hidden="true"></span> synthetic review workspace</div>
     </header>
     <div id="banner" role="alert" hidden></div>
-    <!-- In the flow, under the topbar: an alert is the one message a person
-         must read, and pinning it over the page hid the case title it was
-         talking about. It now pushes the content down instead. -->
     <div id="alert-region" class="alert-region" role="alert" aria-live="assertive"></div>
     <main id="app" class="content" tabindex="-1"><noscript><div class="callout"><strong>JavaScript is required for the working workspace.</strong></div></noscript></main>
   </section>
 </div>
 <div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
 <script type="module" src="/app.js"></script>
+<script type="module" src="/guide.js"></script>
 </body>
 </html>
