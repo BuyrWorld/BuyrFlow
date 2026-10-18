@@ -1,0 +1,22 @@
+name: BuyrFlow checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - ux-simplification-v091
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Run syntax and regression suite
+        run: npm run check
