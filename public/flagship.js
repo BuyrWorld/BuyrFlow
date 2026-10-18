@@ -5,6 +5,9 @@ const $$ = (q, root = document) => [...root.querySelectorAll(q)];
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
 let scheduled = false;
+let enhancing = false;
+let observer = null;
+const app = $("#app");
 
 function todayIso() {
   const d = new Date();
@@ -149,21 +152,34 @@ function enhanceCase() {
   tabs.after(section);
 }
 
+function observeApp() {
+  if (!app || !observer) return;
+  observer.observe(app, { childList: true, subtree: true });
+}
+
 function enhance() {
   scheduled = false;
-  enhanceToday();
-  enhanceCase();
+  if (enhancing) return;
+  enhancing = true;
+  observer?.disconnect();
+  try {
+    enhanceToday();
+    enhanceCase();
+  } finally {
+    enhancing = false;
+    observeApp();
+  }
 }
 
 function scheduleEnhance() {
-  if (scheduled) return;
+  if (scheduled || enhancing) return;
   scheduled = true;
   requestAnimationFrame(enhance);
 }
 
-const app = $("#app");
 if (app) {
-  new MutationObserver(scheduleEnhance).observe(app, { childList: true, subtree: true });
+  observer = new MutationObserver(scheduleEnhance);
+  observeApp();
 }
 window.addEventListener("storage", scheduleEnhance);
 window.addEventListener("popstate", scheduleEnhance);
