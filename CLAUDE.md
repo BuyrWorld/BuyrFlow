@@ -8,6 +8,13 @@ Read this before changing anything. Each rule closes a finding from the 18 Oct 2
 - **Every command needs an actor** (name and role). Every event gets an ISO timestamp and that actor.
 - **A refusal is a `Refusal` with a code and a sentence a person can act on.** Show it where they are looking; save nothing.
 
+## Personal work and governed work
+
+- **A personal task is not an action.** Tasks live in `state.personalTasks`, never in `state.actions`, so `openActions()` cannot see them and they can neither block nor unblock a decision or an outcome. `advanceAction` and `closeAction` resolve ids out of `actions`, so a task id does not exist to them.
+- **Linking a task to a Case confers nothing.** It records a relationship. A task on a Case is still a task: no evidence rules, no approval, and no entry in the Case timeline.
+- **A task asks for a title and, optionally, a day.** Never a completion test, a stage, an evidence state, a kind or an expected result. If a personal task ever seems to need those, it was governed work all along.
+- **Making the surface simple is never permission to simplify the engine.** The controls below are the product.
+
 ## Evidence
 
 - **Receiving is not judging.** A reply is recorded in its own words, then a named person assesses it: supports, contradicts, or not enough. Only "supports" closes a gap.
@@ -36,6 +43,13 @@ Read this before changing anything. Each rule closes a finding from the 18 Oct 2
 - **Classification is a guess, and a refusal is never a dead end.** Where nothing matches, the person picks the kind themselves and their words are kept. Telling somebody to rephrase asks them to guess which verbs a table holds.
 - **Match the verbs buyers use, not only the nouns a system would.** "Run out", "miss", "find someone else" are how the problem arrives.
 - **Say how sure it is.** One keyword out of a short phrase is a weak guess and is labelled as one.
+
+## The first screen
+
+- **Today is one person's day, not the workspace's metrics.** Due today, overdue, waiting, needs a decision — with the portfolio figures one disclosure down.
+- **Progressive disclosure, never deletion.** The board, the evidence ledger, the risk driver inputs, the decisions and the timeline all still render; they stopped going first. A test asserts each is still present.
+- **A deep link opens what it points at.** An evidence anchor inside a closed disclosure is a broken link, so arriving by hash opens it and a callout says why the reader is there.
+- **Translate stage names at the presentation layer only** — `plainStage()` in views.js. Never rename a domain constant for display.
 
 ## Page
 

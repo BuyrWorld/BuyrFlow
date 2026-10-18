@@ -27,7 +27,7 @@
  */
 
 export const SCHEMA = 3;
-export const VERSION = "0.8.0";
+export const VERSION = "0.9.1";
 
 /* ================================================================ identity */
 
@@ -726,14 +726,17 @@ export function seedState() {
   return {
     schema: SCHEMA,
     rev: 0,
-    seq: { case: 3, action: 104, request: 3, decision: 1, outcome: 0 },
+    seq: { case: 3, action: 104, request: 3, decision: 1, outcome: 0, task: 0 },
     settings: {
       user: null,
       secondApprovalAbovePence: 25_000_000,
     },
-    /* Everyone this workspace has seen decide or approve. Grows as people are
-       named; not an account list and not verified. */
+    /* Everyone this workspace has seen decide, approve or keep a task. Grows
+       as people are named; not an account list and not verified. */
     people: [],
+    /* Personal work. Deliberately its own array: nothing here is an action,
+       so nothing here can reach an authority gate. */
+    personalTasks: [],
     suppliers: [
       sup("S-AVEN", "Aven Coil Services", "Specialty strip & coil", 93, 98, "Low", "Strategic"),
       sup("S-TITAN", "Titan Specialty Stock", "Specialty strip & coil", 89, null, "Medium", "Not set"),
@@ -888,6 +891,67 @@ function resolvePerson(s, actor, ctx) {
   const p = { id: ctx.id(), name: actor.name, role: actor.role };
   s.people.push(p);
   return p;
+}
+
+/* ---------------------------------------------------------- personal tasks
+
+   "Call Northstar" is not a procurement case. It needs a title, maybe a day,
+   and one click to finish — not a completion test, a lifecycle stage, an
+   evidence state or an authority gate.
+
+   So a personal task is its own entity in its own array, and that separation
+   is the whole design. Nothing about it can reach the governed path:
+
+     - it never appears in `s.actions`, so `openActions()` cannot see it and
+       it can neither block nor unblock a decision or an outcome;
+     - `advanceAction` and `closeAction` resolve ids out of `s.actions`, so a
+       task id simply does not exist to them;
+     - linking one to a Case records a relationship and confers nothing. A
+       task on a Case is still a task.
+
+   The alternative — a KIND.PERSONAL with a short lifecycle — would have put
+   personal work inside the same table that governs execution, one mistaken
+   condition away from the gates. This cannot be, because the two never meet.
+*/
+
+export const TASK_STATUS = Object.freeze({
+  TODO: "todo", DOING: "doing", WAITING: "waiting", DONE: "done",
+});
+
+/** What each status is called on screen. */
+export const TASK_SAID = Object.freeze({
+  todo: "To do", doing: "In progress", waiting: "Waiting", done: "Done",
+});
+
+const TASK_OPEN = new Set([TASK_STATUS.TODO, TASK_STATUS.DOING, TASK_STATUS.WAITING]);
+
+/** Every personal task, tolerating a workspace saved before they existed. */
+export const personalTasks = (s) => s.personalTasks || [];
+export const personalTaskById = (s, id) => personalTasks(s).find((t) => t.id === id) || null;
+export const openPersonalTasks = (s) => personalTasks(s).filter((t) => TASK_OPEN.has(t.status));
+
+/** The tasks one person has in front of them, soonest first. */
+export function myTasks(s, personId) {
+  return openPersonalTasks(s)
+    .filter((t) => !personId || t.ownerPersonId === personId)
+    .sort((a, b) => {
+      const ad = a.dueDate || "9999-12-31", bd = b.dueDate || "9999-12-31";
+      return ad.localeCompare(bd) || (a.priority === "high" ? -1 : 0) - (b.priority === "high" ? -1 : 0);
+    });
+}
+
+/** What a day looks like, in the four counts the Today page leads with. */
+export function myDay(s, today, personId = null) {
+  const open = myTasks(s, personId);
+  const dated = (t) => isIsoDate(t.dueDate);
+  return {
+    dueToday: open.filter((t) => dated(t) && t.dueDate === today && t.status !== TASK_STATUS.WAITING).length,
+    overdue: open.filter((t) => dated(t) && t.dueDate < today && t.status !== TASK_STATUS.WAITING).length,
+    waiting: open.filter((t) => t.status === TASK_STATUS.WAITING).length,
+    /* Cases whose next move is a human decision. Read from the case engine,
+       never counted here, so this agrees with the Case page. */
+    needsDecision: s.cases.filter((c) => ["decision", "approval"].includes(casePhase(s, c).id)).length,
+  };
 }
 
 function newAction(s, ctx, fields) {
@@ -1122,6 +1186,87 @@ const HANDLERS = {
     const after = caseRisk(s, c, ctx.today).level;
     ctx.emit(c.id, "Evidence assessed", `${e.title}: ${VERDICT_SAID[cmd.verdict].toLowerCase()} — ${note} Risk ${before} → ${after}.`);
     return { before, after };
+  },
+
+  /**
+   * Add something you need to do. Title required; everything else optional.
+   *
+   * No completion test, no stage, no kind, no expected result. Those belong
+   * to governed work, and asking for them here is what made the old
+   * "workspace action" useless for a phone call.
+   */
+  addPersonalTask(s, cmd, ctx) {
+    if (!Array.isArray(s.personalTasks)) s.personalTasks = [];
+    const title = text(cmd.title);
+    need(title, "title", "Say what needs doing.");
+    /* A date is optional, but a bad one is not: silently dropping "32 March"
+       would leave somebody believing they had set a reminder. */
+    need(!cmd.dueDate || isIsoDate(cmd.dueDate), "due", "That due date is not a date.");
+    if (cmd.caseId) need(caseById(s, cmd.caseId), "case", "That case does not exist.");
+    if (cmd.supplierId) need(supplierById(s, cmd.supplierId), "supplier", "That supplier does not exist.");
+
+    const owner = resolvePerson(s, ctx.actor, ctx);
+    s.seq.task = (s.seq.task || 0) + 1;
+    const t = {
+      id: ctx.id(), ref: `P-${s.seq.task}`, title,
+      ownerPersonId: owner.id, ownerName: owner.name,
+      status: TASK_STATUS.TODO,
+      dueDate: cmd.dueDate || null,
+      priority: cmd.priority === "high" ? "high" : "normal",
+      /* A relationship, and nothing more. A task on a Case is still a task:
+         it carries no authority and the Case does not wait for it. */
+      caseId: cmd.caseId || null,
+      supplierId: cmd.supplierId || null,
+      note: text(cmd.note) || null,
+      createdAt: ctx.now, createdBy: ctx.actor, completedAt: null,
+    };
+    s.personalTasks.unshift(t);
+    /* Kept out of the case timeline even when linked: a personal reminder is
+       not part of a Case's audit trail. */
+    ctx.emit(null, "Task added", `${t.ref}: ${title}${t.dueDate ? ` (due ${formatDate(t.dueDate)})` : ""}`);
+    return { taskId: t.id, ref: t.ref };
+  },
+
+  /** Start it, park it, finish it, or put it back. One click, any direction. */
+  setTaskStatus(s, cmd, ctx) {
+    const t = personalTaskById(s, cmd.taskId);
+    need(t, "task", "That task does not exist.");
+    need(Object.values(TASK_STATUS).includes(cmd.status), "status",
+      "A task is to do, in progress, waiting or done.");
+    const was = t.status;
+    t.status = cmd.status;
+    t.completedAt = cmd.status === TASK_STATUS.DONE ? ctx.now : null;
+    ctx.emit(null, "Task updated", `${t.ref}: ${TASK_SAID[was]} → ${TASK_SAID[cmd.status]}`);
+    return { status: t.status };
+  },
+
+  /** Change the wording or the day. Not a lifecycle, just an edit. */
+  editPersonalTask(s, cmd, ctx) {
+    const t = personalTaskById(s, cmd.taskId);
+    need(t, "task", "That task does not exist.");
+    if (cmd.title !== undefined) {
+      const title = text(cmd.title);
+      need(title, "title", "A task needs a title.");
+      t.title = title;
+    }
+    if (cmd.dueDate !== undefined) {
+      need(!cmd.dueDate || isIsoDate(cmd.dueDate), "due", "That due date is not a date.");
+      t.dueDate = cmd.dueDate || null;
+    }
+    if (cmd.priority !== undefined) t.priority = cmd.priority === "high" ? "high" : "normal";
+    if (cmd.note !== undefined) t.note = text(cmd.note) || null;
+    if (cmd.caseId !== undefined) {
+      if (cmd.caseId) need(caseById(s, cmd.caseId), "case", "That case does not exist.");
+      t.caseId = cmd.caseId || null;
+    }
+    ctx.emit(null, "Task updated", `${t.ref}: ${t.title}`);
+  },
+
+  deletePersonalTask(s, cmd, ctx) {
+    const t = personalTaskById(s, cmd.taskId);
+    need(t, "task", "That task does not exist.");
+    s.personalTasks = personalTasks(s).filter((x) => x.id !== t.id);
+    ctx.emit(null, "Task removed", `${t.ref}: ${t.title}`);
   },
 
   addAction(s, cmd, ctx) {

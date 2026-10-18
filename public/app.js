@@ -477,6 +477,73 @@ function closeActionForm(actionId) {
  * known when somebody first describes the problem, which is why it is here
  * and not only on the intake form.
  */
+/* ========================================================= personal tasks */
+
+/**
+ * Add something you need to do. Two fields, and the second is optional.
+ *
+ * Everything else lives behind More options, because a phone call does not
+ * need a priority, a case and a note before it can be written down.
+ */
+function addTaskForm(preset = {}) {
+  const t = D.localToday();
+  openWorkbench({
+    title: "Add a task",
+    lede: "Something you need to get done. Not a Procurement Case — no evidence, approvals or audit trail.",
+    submit: "Add task",
+    fields: [
+      { name: "title", label: "What needs doing?", required: true, placeholder: "Call TW about AMS5599" },
+      { name: "due", label: "When?", type: "select", value: preset.due ?? t,
+        options: [
+          { value: t, label: "Today" },
+          { value: D.addDays(t, 1), label: "Tomorrow" },
+          { value: D.addDays(t, 7), label: "Next week" },
+          { value: "", label: "No date" },
+        ] },
+      { type: "info", html: `<details class="more-options"><summary>More options</summary>`
+        + `<p class="small">A task can point at a Case or a supplier. It stays a task either way — linking one does not give it evidence rules or approvals.</p></details>` },
+      { name: "priority", label: "Priority", type: "select", value: "normal",
+        options: [{ value: "normal", label: "Normal" }, { value: "high", label: "High" }] },
+      { name: "caseId", label: "Related Case", type: "select", value: preset.caseId || "",
+        placeholder: "Not related to a Case",
+        options: state.cases.map((c) => ({ value: c.id, label: `${c.ref} · ${c.title}` })) },
+      { name: "note", label: "Note", type: "textarea", placeholder: "Anything you want to remember" },
+    ],
+    onSubmit: (d) => {
+      const r = run({
+        type: "addPersonalTask", title: d.title, dueDate: d.due || null,
+        priority: d.priority, caseId: d.caseId || null, note: d.note || null,
+      });
+      if (r.ok) { render(); toast(`${r.result.ref} added.`); }
+      return r;
+    },
+  });
+}
+
+/** Change the wording, the day or the link. Still not a lifecycle. */
+function editTaskForm(taskId) {
+  const t = D.personalTaskById(state, taskId);
+  if (!t) return;
+  openWorkbench({
+    title: `Edit ${t.ref}`,
+    lede: "",
+    submit: "Save",
+    fields: [
+      { name: "title", label: "What needs doing?", required: true, value: t.title },
+      { name: "due", label: "Due", type: "date", value: t.dueDate || "" },
+      { name: "priority", label: "Priority", type: "select", value: t.priority,
+        options: [{ value: "normal", label: "Normal" }, { value: "high", label: "High" }] },
+      { name: "note", label: "Note", type: "textarea", value: t.note || "" },
+      { type: "info", html: `<p class="small">Finished with it? <button type="button" class="bw-action-text" data-action="task-delete" data-id="${esc(t.id)}">Remove this task</button></p>` },
+    ],
+    onSubmit: (d) => {
+      const r = run({ type: "editPersonalTask", taskId, title: d.title, dueDate: d.due || null, priority: d.priority, note: d.note });
+      if (r.ok) { render(); toast("Saved."); }
+      return r;
+    },
+  });
+}
+
 function caseValueForm(caseId) {
   const c = D.caseById(state, caseId);
   if (!c) return;
@@ -737,7 +804,7 @@ function resetWorkspace() {
 /* ============================================================== navigation */
 
 const ROUTES = { "/": "today", "/cases": "cases", "/flow": "flow", "/suppliers": "suppliers", "/decisions": "decisions", "/tools": "tools" };
-const TITLES = { today: "Today", cases: "Cases", flow: "BuyrFlow", suppliers: "Suppliers", decisions: "Decisions", tools: "Capabilities", notfound: "Not found" };
+const TITLES = { today: "Today", cases: "Cases", flow: "My work", suppliers: "Suppliers", decisions: "Decision memory", tools: "Capabilities", notfound: "Not found" };
 
 const currentPage = () => ROUTES[location.pathname.replace(/\/+$/, "") || "/"] || "notfound";
 
@@ -770,7 +837,11 @@ function globalSearch(q) {
 
 function render() {
   const page = currentPage();
-  const ctx = { today: today(), params: new URLSearchParams(location.search), pendingIntake: ui.pendingIntake, intakeMessage: ui.intakeMessage };
+  /* The hash travels with the rest of the context: a Case arrived at through
+     an evidence link opens its detail, rather than hiding the very item the
+     link was for. */
+  const ctx = { today: today(), params: new URLSearchParams(location.search), hash: location.hash,
+    pendingIntake: ui.pendingIntake, intakeMessage: ui.intakeMessage };
   const views = { today: V.renderToday, cases: V.renderCases, flow: V.renderFlow, suppliers: V.renderSuppliers, decisions: V.renderDecisions, tools: V.renderTools, notfound: V.renderNotFound };
   const solveText = $("#solve-input")?.value || "";
   document.body.dataset.page = page;
@@ -783,6 +854,92 @@ function render() {
   $("#app").innerHTML = views[page](state, ctx);
   const solve = $("#solve-input");
   if (solve && solveText) solve.value = solveText;
+  renderHints();
+  /* A secondary screen is open, so the drawer that holds it should be too —
+     otherwise the nav gives no sign of where you are. */
+  const more = $("#workspace-more");
+  if (more && ["cases", "suppliers", "decisions"].includes(page)) more.open = true;
+}
+
+/* =========================================== first run, and gentle hints
+
+   Two separate ideas. The walkthrough is shown once and explains the three
+   things somebody needs to know. Hints are per-screen, dismissible, and stop
+   appearing once the person has done the thing they describe — a hint that
+   never goes away is a manual nobody reads.
+
+   Both remember their dismissal in localStorage, which is right for a review
+   build with no accounts and is said as much in the release notes. */
+
+const GUIDE_KEY = "buyrflow.guide.v1";
+const HINT_KEY = "buyrflow.hints.v1";
+
+const readSet = (key) => { try { return new Set(JSON.parse(localStorage.getItem(key)) || []); } catch { return new Set(); } };
+const writeSet = (key, set) => { try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* private window */ } };
+
+const HINTS = {
+  today: "Add a task if you already know what needs doing. Describe a problem when you want BuyrWorld to structure the next steps.",
+  flow: "This is your daily work list. Case-linked actions appear here too, but BuyrWorld keeps their evidence and approval rules in the background.",
+  cases: "Use a Case when the work needs evidence, supplier responses, a decision or an audit trail. You do not need a Case for every task.",
+};
+
+/** Put the hint for this screen in its slot, unless it has been dismissed. */
+function renderHints() {
+  const dismissed = readSet(HINT_KEY);
+  document.querySelectorAll(".hint-slot").forEach((slot) => {
+    const id = slot.dataset.hint;
+    const text = HINTS[id];
+    if (!text || dismissed.has(id)) { slot.innerHTML = ""; return; }
+    slot.innerHTML = `<div class="hint"><p><strong>Tip:</strong> ${esc(text)}</p>`
+      + `<button class="hint-close" data-action="dismiss-hint" data-id="${esc(id)}" aria-label="Dismiss this tip">✕</button></div>`;
+  });
+}
+
+function dismissHint(id) {
+  const set = readSet(HINT_KEY);
+  set.add(id);
+  writeSet(HINT_KEY, set);
+  renderHints();
+}
+
+/** The walkthrough. Three things, about thirty seconds. */
+function showGuide(force = false) {
+  try { if (!force && localStorage.getItem(GUIDE_KEY) === "done") return; } catch { /* private window: show it */ }
+  if ($("#guide-layer")) return;
+  const returnFocus = document.activeElement;
+  const layer = document.createElement("div");
+  layer.id = "guide-layer";
+  layer.className = "guide-layer";
+  layer._returnFocus = returnFocus;
+  layer.innerHTML = `<div class="guide-scrim" data-close-guide></div>`
+    + `<section class="guide" role="dialog" aria-modal="true" aria-labelledby="guide-title">`
+    + `<div class="eyebrow">BuyrFlow in 30 seconds</div>`
+    + `<h2 id="guide-title">You do not need to learn the system first.</h2>`
+    + `<ol class="guide-list">`
+    + `<li><strong>Add a task</strong> when you already know what needs doing.</li>`
+    + `<li><strong>Describe a problem</strong> when a supplier, shortage, quote or commercial issue needs structuring.</li>`
+    + `<li><strong>Open a Case only when needed</strong> — for evidence, approvals, decisions and history.</li>`
+    + `</ol>`
+    + `<div class="toolbar"><button class="bw-action-primary" data-action="guide-work">Show my work</button>`
+    + `<button class="bw-action-secondary" data-action="guide-done">Got it</button></div>`
+    + `</section>`;
+  document.body.appendChild(layer);
+  document.body.classList.add("dialog-open");
+  const shell = $(".app-shell");
+  if (shell) shell.inert = true;
+  layer.querySelector(".bw-action-primary")?.focus();
+}
+
+function closeGuide() {
+  const layer = $("#guide-layer");
+  if (!layer) return;
+  try { localStorage.setItem(GUIDE_KEY, "done"); } catch { /* private window */ }
+  const back = layer._returnFocus;
+  layer.remove();
+  const shell = $(".app-shell");
+  if (shell) shell.inert = false;
+  document.body.classList.remove("dialog-open");
+  if (back && document.contains(back)) back.focus();
 }
 
 function afterFirstRender() {
@@ -812,6 +969,15 @@ const ACTIONS = {
   "add-action": (b) => addActionForm(b.dataset.case),
   "advance": (b) => runAndShow({ type: "advanceAction", actionId: b.dataset.id }, "Action progressed."),
   "close-action": (b) => closeActionForm(b.dataset.id),
+  "add-task": () => addTaskForm(),
+  "task-status": (b) => runAndShow({ type: "setTaskStatus", taskId: b.dataset.id, status: b.dataset.status }, null),
+  "task-edit": (b) => editTaskForm(b.dataset.id),
+  "task-delete": (b) => { closeWorkbench(); runAndShow({ type: "deletePersonalTask", taskId: b.dataset.id }, "Task removed."); },
+  "dismiss-hint": (b) => dismissHint(b.dataset.id),
+  "open-guide": () => showGuide(true),
+  "guide-done": () => closeGuide(),
+  "guide-work": () => { closeGuide(); location.href = "/flow"; },
+  "focus-problem": () => { const i = $("#solve-input"); if (i) { i.scrollIntoView({ block: "center" }); i.focus(); } },
   "case-value": (b) => caseValueForm(b.dataset.case),
   "record-decision": (b) => decisionForm(b.dataset.case),
   "approve": (b) => approveForm(b.dataset.id),
@@ -830,6 +996,20 @@ document.addEventListener("click", (e) => {
   if (fn) { e.preventDefault(); fn(b); }
 });
 
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-close-guide]")) closeGuide();
+  /* An evidence anchor inside a closed disclosure scrolls nowhere. Opening
+     its ancestors first is what makes the link mean what it says. */
+  const anchor = e.target.closest(`a[href^="#ev-"]`);
+  if (anchor) {
+    const target = document.getElementById(decodeURIComponent(anchor.getAttribute("href").slice(1)));
+    if (target) {
+      for (let d = target.closest("details"); d; d = d.parentElement?.closest("details")) d.open = true;
+      requestAnimationFrame(() => { target.scrollIntoView({ block: "center" }); if (target.tabIndex === -1) target.focus({ preventScroll: true }); });
+    }
+  }
+});
+
 document.addEventListener("change", (e) => {
   const t = e.target;
   if (t.dataset?.change === "intake-type" && ui.pendingIntake) { ui.pendingIntake = { ...ui.pendingIntake, chosenType: t.value }; redrawIntake(); $("#in-type")?.focus(); }
@@ -837,6 +1017,7 @@ document.addEventListener("change", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("#guide-layer")) { e.preventDefault(); closeGuide(); return; }
   if (e.key !== "Enter") return;
   if (e.target.id === "solve-input") { e.preventDefault(); routeWork(e.target.value); }
   if (e.target.id === "global-search") { e.preventDefault(); globalSearch(e.target.value); }
@@ -851,5 +1032,6 @@ state = load();
 loadedRev = state.rev;
 render();
 afterFirstRender();
+showGuide();
 for (const m of queued.splice(0)) toast(m);
 if (!state.settings.user && currentPage() !== "today") toast("Set your name and role on Today before changing anything.");

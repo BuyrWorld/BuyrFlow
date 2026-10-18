@@ -14,21 +14,31 @@
 <div class="app-shell">
   <aside id="sidebar" class="sidebar">
     <a class="brand" href="/"><img src="/buyrworld-logo.png" alt="BuyrWorld" width="168" height="47"><small>Evidence-led procurement OS</small></a>
+    <!-- Two primary destinations, and everything else behind More. The routes
+         are unchanged: this is a hierarchy, not a rebuild. "My work" is what
+         a buyer calls /flow; the code still calls it flow. -->
     <nav class="side-section side-nav" aria-label="Workspace">
-      <div class="side-label">Workspace</div>
       <a href="/" data-nav="today"><span class="icon" aria-hidden="true">⌂</span>Today</a>
-      <a href="/cases" data-nav="cases"><span class="icon" aria-hidden="true">◫</span>Cases</a>
-      <a href="/flow" data-nav="flow"><span class="icon" aria-hidden="true">→</span>BuyrFlow</a>
-      <a href="/suppliers" data-nav="suppliers"><span class="icon" aria-hidden="true">◎</span>Suppliers</a>
-      <a href="/decisions" data-nav="decisions"><span class="icon" aria-hidden="true">✓</span>Decisions</a>
+      <a href="/flow" data-nav="flow"><span class="icon" aria-hidden="true">☑</span>My work</a>
+      <details class="side-more" id="workspace-more">
+        <summary>More</summary>
+        <div class="side-more-links">
+          <a href="/cases" data-nav="cases"><span class="icon" aria-hidden="true">◫</span>Cases</a>
+          <a href="/suppliers" data-nav="suppliers"><span class="icon" aria-hidden="true">◎</span>Suppliers</a>
+          <a href="/decisions" data-nav="decisions"><span class="icon" aria-hidden="true">✓</span>Decision memory</a>
+        </div>
+      </details>
     </nav>
-    <div class="side-foot">Flagship foundation · Release A v0.8.1<br>Evidence before automation.</div>
+    <div class="side-foot">Flagship foundation · Release A v0.9.1<br>Evidence before automation.</div>
   </aside>
   <section class="workspace">
     <header class="topbar">
       <button id="menu" class="bw-action-secondary mobile-menu" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
       <div class="search"><label class="sr-only" for="global-search">Search cases, suppliers and actions</label><input id="global-search" placeholder="Search cases, suppliers or actions…" autocomplete="off"></div>
       <div class="top-state"><span class="live-dot" aria-hidden="true"></span> synthetic review workspace</div>
+      <!-- Always available, so the walkthrough is never a one-time thing
+           somebody dismissed before they understood it. -->
+      <button id="help" class="help-button" data-action="open-guide" aria-label="How BuyrFlow works">?</button>
     </header>
     <div id="banner" role="alert" hidden></div>
     <!-- In the flow, under the topbar: an alert is the one message a person

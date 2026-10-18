@@ -30,10 +30,14 @@ describe("every page renders from the seed", () => {
 });
 
 describe("what the screens say", () => {
-  test("Today has one headline question", () => {
+  test("Today has one headline question, and it is about the person's day", () => {
+    /* v0.9.1 moved the headline from the workspace's question to the user's.
+       "What needs resolving today?" is still on the page, as the heading of
+       the problem router further down — it stopped being the first thing. */
     const html = V.renderToday(D.seedState(), ctx());
     assert.equal((html.match(/<h1/g) || []).length, 1);
-    assert.match(html, /What needs resolving today\?/);
+    assert.match(html, /What are you working on today\?/);
+    assert.match(html, /Describe what changed/, "the problem router disappeared");
   });
 
   test("no composite score appears anywhere (BF-5)", () => {

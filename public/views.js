@@ -94,42 +94,129 @@ export function renderIntake(ctx) {
     + `</div>`;
 }
 
+/** "Good morning" / "Good afternoon" / "Good evening", from the local clock. */
+function greeting(now = new Date()) {
+  const h = now.getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
+
+/** One personal task, with the three things you can do to it in one click. */
+function taskRow(s, t, today) {
+  const late = D.isIsoDate(t.dueDate) && t.dueDate < today;
+  const due = !D.isIsoDate(t.dueDate) ? "No date"
+    : t.dueDate === today ? "Today"
+    : t.dueDate === D.addDays(today, 1) ? "Tomorrow"
+    : D.formatDate(t.dueDate);
+  const linked = t.caseId ? D.caseById(s, t.caseId) : null;
+  const act = (status, label) => t.status === status ? ""
+    : `<button class="mini" data-action="task-status" data-id="${esc(t.id)}" data-status="${esc(status)}">${label}</button>`;
+  return `<div class="task" data-task="${esc(t.id)}">`
+    + `<button class="task-tick" data-action="task-status" data-id="${esc(t.id)}" data-status="done" aria-label="Mark ${esc(t.title)} done"></button>`
+    + `<div class="task-body"><strong>${esc(t.title)}</strong>`
+    + `<p class="task-meta"><span class="${late ? "danger" : ""}">${esc(due)}${late ? " · overdue" : ""}</span>`
+    + (t.status !== "todo" ? ` · ${esc(D.TASK_SAID[t.status])}` : "")
+    + (t.priority === "high" ? ` · <span class="danger">High</span>` : "")
+    + (linked ? ` · <a href="/cases?id=${encodeURIComponent(linked.id)}">${esc(linked.ref)}</a>` : "")
+    + `</p></div>`
+    + `<div class="task-acts">${act("doing", "Start")}${act("waiting", "Waiting")}`
+    + `<button class="mini" data-action="task-edit" data-id="${esc(t.id)}">Edit</button></div></div>`;
+}
+
+/**
+ * Today — one person's day, not the workspace's metrics.
+ *
+ * The four questions this has to answer before anything else: what should I
+ * do next, what is due, what am I waiting for, and is a decision needed. The
+ * case engine's figures are all still here, one disclosure down, because they
+ * are the right content for a different question.
+ */
 export function renderToday(s, ctx) {
   const today = ctx.today;
   const m = D.workspaceMetrics(s, today);
   const user = s.settings.user;
-  const prio = { critical: 0, high: 1, normal: 2 };
-  const attention = s.actions.filter((a) => a.stage !== "closed")
-    .sort((a, b) => {
-      const ao = D.isIsoDate(a.dueDate) && a.dueDate < today ? 0 : 1, bo = D.isIsoDate(b.dueDate) && b.dueDate < today ? 0 : 1;
-      return ao - bo || (prio[a.priority] ?? 9) - (prio[b.priority] ?? 9) || String(a.dueDate).localeCompare(String(b.dueDate));
-    }).slice(0, 5);
-  const gaps = s.cases.flatMap((c) => c.evidence.filter((e) => e.material && ["gap", "awaiting", "insufficient"].includes(D.evidenceStatus(e))).map((e) => ({ c, e })));
+  const me = user ? (s.people || []).find((p) => p.name === user.name) : null;
+  const day = D.myDay(s, today, me?.id || null);
+  const mine = D.myTasks(s, me?.id || null);
 
-  return `<div class="demo-strip"><strong>REVIEW DATA</strong> Synthetic standalone workspace — not live organisational or supplier performance.</div>`
-    + (user ? "" : `<section class="bw-panel who"><div><strong>Who is working?</strong><p>Your name and role are recorded against every change, decision and approval.</p></div><button class="bw-action-primary" data-action="set-user">Set name and role</button></section>`)
-    + `<section class="solve signature-solve" aria-labelledby="solve-title"><div class="eyebrow">BuyrWorld workspace${user ? ` · ${esc(user.name)}, ${esc(user.role)}` : ""}</div>`
-    + `<h1 id="solve-title">What needs resolving today?</h1>`
-    + `<p class="lead">Describe what changed in normal procurement language. BuyrWorld shows what it understood and asks you to confirm before it creates anything.</p>`
-    + `<div class="solve-row"><label class="sr-only" for="solve-input">Describe the problem</label><input id="solve-input" class="input" placeholder="Northstar is late and production needs the coil by 11 December" autocomplete="off"><button class="bw-action-primary" data-action="route-work">Understand →</button></div>`
-    + `<div class="example-chips"><span class="small">Try an example:</span>${EXAMPLES.map(([label, t]) => `<button class="example-chip" data-action="example-problem" data-example="${esc(t)}">${esc(label)}</button>`).join("")}</div>`
-    + `<div id="solve-result">${renderIntake(ctx)}</div>`
-    + `<div class="secondary-links"><button class="bw-action-text" data-action="paste-evidence">Add evidence to a case</button><a class="bw-action-text" href="/flow">Continue my work →</a></div>`
+  const next = mine.filter((t) => t.status !== D.TASK_STATUS.WAITING).slice(0, 5);
+  const waitingTasks = mine.filter((t) => t.status === D.TASK_STATUS.WAITING);
+  const waitingOn = s.requests.filter((r) => r.status !== "answered");
+  const attention = s.cases
+    .map((c) => ({ c, phase: D.casePhase(s, c), rec: D.recommendation(s, c, today) }))
+    .filter(({ phase }) => phase.id !== "learned")
+    .slice(0, 4);
+
+  const count = (n, label, href) =>
+    `<a class="daycount${n ? "" : " zero"}" href="${href}"><b>${n}</b><small>${label}</small></a>`;
+
+  return `<section class="daystart">`
+    + `<div class="eyebrow">${esc(greeting())}${user ? `, ${esc(user.name.split(" ")[0])}` : ""}</div>`
+    + `<h1 id="solve-title">What are you working on today?</h1>`
+    + `<div class="daystart-acts">`
+    + `<button class="bw-action-primary" data-action="add-task">+ Add a task</button>`
+    + `<button class="bw-action-secondary" data-action="focus-problem">Resolve a procurement problem</button>`
+    + `</div>`
+    + (user ? "" : `<p class="small who-note">Set your name and role before changing anything — every decision and approval is recorded against a person. <button class="bw-action-text" data-action="set-user">Set name and role</button></p>`)
     + `</section>`
+
+    + `<div class="hint-slot" data-hint="today"></div>`
+
+    + `<div class="daycounts" aria-label="My day">`
+    + count(day.dueToday, "due today", "/flow")
+    + count(day.overdue, "overdue", "/flow")
+    + count(day.waiting, "waiting", "/flow")
+    + count(day.needsDecision, "needs a decision", "/cases")
+    + `</div>`
+
+    + `<div class="grid">`
+    + `<section class="bw-panel span-7"><div class="panel-head"><div><div class="eyebrow">Next up</div><h2>Your tasks</h2></div><a class="bw-action-text" href="/flow">All my work →</a></div>`
+    + `<div class="task-list">${next.map((t) => taskRow(s, t, today)).join("")
+      || `<div class="empty">Nothing on your list yet. <button class="bw-action-text" data-action="add-task">Add something you need to get done</button>, or describe a procurement problem above.</div>`}</div>`
+    + `</section>`
+
+    + `<section class="bw-panel span-5"><div class="panel-head"><div><div class="eyebrow">Waiting on others</div><h2>Not with you</h2></div></div>`
+    + (waitingTasks.map((t) => `<div class="row"><span class="dot" aria-hidden="true"></span><div><strong>${esc(t.title)}</strong><p>Waiting${t.dueDate ? ` · due ${esc(D.formatDate(t.dueDate))}` : ""}</p></div><button class="mini" data-action="task-status" data-id="${esc(t.id)}" data-status="todo">Resume</button></div>`).join("")
+      + waitingOn.map((r) => {
+        const sup = D.supplierById(s, r.supplierId);
+        const c = D.caseById(s, r.caseId);
+        return `<div class="row"><span class="dot" aria-hidden="true"></span><div><strong>${esc(sup?.name || "A supplier")}</strong><p>${esc(c?.ref || "")} · ${esc(r.question)}</p></div><a class="bw-action-secondary" href="/cases?id=${encodeURIComponent(r.caseId)}">Open</a></div>`;
+      }).join("")
+      || `<div class="empty">You are not waiting on anyone right now.</div>`)
+    + `</section></div>`
+
+    + `<section class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Needs your attention</div><h2>Cases with a next move</h2></div><a class="bw-action-text" href="/cases">All cases →</a></div>`
+    + (attention.map(({ c, rec }) => `<div class="row"><span class="dot ${esc(D.caseRisk(s, c, today).level.toLowerCase())}" aria-hidden="true"></span><div><strong>${esc(c.title)}</strong><p>${esc(rec.headline)}</p></div><a class="bw-action-secondary" href="/cases?id=${encodeURIComponent(c.id)}">Open</a></div>`).join("")
+      || `<div class="empty">No case needs a move from you.</div>`)
+    + `</section>`
+
+    /* Everything the workspace knows about itself, one disclosure down. It is
+       the right content for "how is the portfolio doing", which is not the
+       question somebody opens this page with. */
+    + `<details class="workspace-detail"><summary>Show workspace detail</summary>`
     + `<div class="metrics">`
     + `<div class="metric"><b>${m.critical + m.high}</b><small>cases at High or Critical</small></div>`
     + `<div class="metric"><b>${m.overdue}</b><small>overdue actions</small></div>`
     + `<div class="metric"><b>${m.awaitingAssessment}</b><small>replies awaiting assessment</small></div>`
     + `<div class="metric"><b>${m.readyToDecide}</b><small>cases ready to decide</small></div>`
     + `</div>`
-    + `<div class="grid"><section class="bw-panel span-7"><div class="panel-head"><div><div class="eyebrow">Buyr inbox</div><h2>What deserves attention first</h2></div><a class="bw-action-text" href="/flow">All work →</a></div>`
-    + `<div class="attention-list">${attention.map((a) => actionRow(s, a, today)).join("") || '<div class="empty">No open actions.</div>'}</div></section>`
-    + `<section class="bw-panel span-5"><div class="panel-head"><div><div class="eyebrow">Evidence</div><h2>Open gaps and unjudged replies</h2></div></div>`
-    + (gaps.map(({ c, e }) => `<div class="row"><span class="dot ${D.evidenceStatus(e) === "awaiting" ? "high" : "critical"}" aria-hidden="true"></span><div><strong>${esc(c.ref)} · ${esc(e.title)}</strong><p>${esc(D.STATUS_SAID[D.evidenceStatus(e)])}</p></div><a class="bw-action-secondary" href="/cases?id=${encodeURIComponent(c.id)}#ev-${encodeURIComponent(e.id)}">Review</a></div>`).join("") || '<div class="empty">No material evidence gaps.</div>')
-    + `</section></div>`
     + `<section class="bw-panel workspace-data"><div class="panel-head"><div><div class="eyebrow">Workspace data</div><h2>Kept in this browser only</h2></div></div>`
     + `<p class="small">Nothing leaves this device. Export a copy before clearing browser data or switching machines.</p>`
-    + `<div class="toolbar"><button class="bw-action-secondary" data-action="export">Export workspace (JSON)</button><button class="bw-action-secondary" data-action="import">Import workspace</button><button class="bw-action-text" data-action="reset">Reset to review data</button>${user ? `<button class="bw-action-text" data-action="set-user">Change name or role</button>` : ""}</div></section>`;
+    + `<div class="toolbar"><button class="bw-action-secondary" data-action="export">Export workspace (JSON)</button><button class="bw-action-secondary" data-action="import">Import workspace</button><button class="bw-action-text" data-action="reset">Reset to review data</button>${user ? `<button class="bw-action-text" data-action="set-user">Change name or role</button>` : ""}</div></section>`
+    + `</details>`
+
+    /* The problem router, below the day rather than instead of it. Still the
+       way a Case begins, and still refusing to create anything unconfirmed. */
+    + `<section class="solve" id="problem-router" aria-labelledby="problem-title">`
+    + `<div class="eyebrow">Resolve a procurement problem</div>`
+    + `<h2 id="problem-title">Describe what changed</h2>`
+    + `<p class="lead">Normal procurement language. BuyrWorld shows what it understood and asks you to confirm before it creates anything.</p>`
+    + `<div class="solve-row"><label class="sr-only" for="solve-input">Describe the problem</label><input id="solve-input" class="input" placeholder="Northstar is late and production needs the coil by 11 December" autocomplete="off"><button class="bw-action-primary" data-action="route-work">Understand →</button></div>`
+    + `<div class="example-chips"><span class="small">Try an example:</span>${EXAMPLES.map(([label, t]) => `<button class="example-chip" data-action="example-problem" data-example="${esc(t)}">${esc(label)}</button>`).join("")}</div>`
+    + `<div id="solve-result">${renderIntake(ctx)}</div>`
+    + `<div class="secondary-links"><button class="bw-action-text" data-action="paste-evidence">Add evidence to a case</button></div>`
+    + `</section>`
+
+    + `<div class="demo-strip"><strong>REVIEW DATA</strong> Synthetic standalone workspace — not live organisational or supplier performance.</div>`;
 }
 
 /* ===================================================================== cases */
@@ -256,10 +343,26 @@ export function renderCases(s, ctx) {
   buttons.push(`<button class="bw-action-secondary" data-action="add-action" data-case="${esc(c.id)}">Add action</button>`);
   if (c.quotes.length) buttons.push(`<button class="bw-action-secondary" data-action="request" data-case="${esc(c.id)}">Ask a supplier</button>`);
 
+  /* Arrived from an evidence link. The item is inside the detail disclosure,
+     so the disclosure opens — a deep link that lands on something collapsed
+     is a deep link that failed — and a line explains why they are here. */
+  const viaEvidence = String(ctx.hash || "").startsWith("#ev-");
+
   return pageHead("Procurement cases", "Evidence → decision → execution → outcome", "")
+    /* Always, not only when deep-linked. A Case is somewhere you are sent —
+       from Today, from My work, from a link in an email — and at phone width
+       the sidebar is behind a menu button, so without this the way back is a
+       thing you have to know rather than see. */
+    + `<a class="back-link" href="/flow">← Back to my work</a>`
     + `<nav class="case-tabs" aria-label="Cases">${s.cases.map((x) => `<a class="case-tab ${x.id === c.id ? "active" : ""}" href="/cases?id=${encodeURIComponent(x.id)}"${x.id === c.id ? ' aria-current="page"' : ""}>${esc(x.ref)}</a>`).join("")}</nav>`
+    + `<div class="hint-slot" data-hint="cases"></div>`
+    + (viaEvidence
+      ? `<div class="callout deep-link"><strong>You are reviewing evidence for ${esc(c.ref)} — ${esc(c.title)}.</strong> `
+        + `Check what arrived, decide whether it supports the requirement, and BuyrFlow will update the next step. `
+        + `<a class="bw-action-text" href="/flow">Back to my work</a></div>`
+      : "")
     + journeyStrip(phase)
-    + `<section class="bw-panel raised next-gate" aria-labelledby="gate-title"><div><div class="eyebrow">Recommended next gate</div><h2 id="gate-title">${esc(rec.headline)}</h2><div class="next-action"><small>NEXT ACTION</small><strong>${esc(rec.next)}</strong></div><div class="toolbar">${buttons.join("")}</div></div><div class="callout">${esc(rec.reason)}</div></section>`
+    + `<section class="bw-panel raised next-gate" aria-labelledby="gate-title"><div><div class="eyebrow">What should I do next?</div><h2 id="gate-title">${esc(rec.headline)}</h2><div class="next-action"><small>NEXT ACTION</small><strong>${esc(rec.next)}</strong></div><div class="toolbar">${buttons.join("")}</div></div><div class="callout">${esc(rec.reason)}</div></section>`
     + `<div class="grid"><section class="span-8"><div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">${esc(c.ref)} · ${esc(def?.label || c.type)} · ${esc(phase.label)}</div><h2>${esc(c.title)}</h2></div>${riskChip(risk.level)}</div>`
     + `<p class="lead">${esc(c.objective)}</p>`
     /* The value is a control, not only a figure: the approval threshold is
@@ -270,15 +373,31 @@ export function renderCases(s, ctx) {
       ? `<b>${esc(money(c.valuePence))}</b><small>value at stake</small>`
       : `<b class="unset">Not recorded</b><small>value at stake · <button class="linklike" data-action="case-value" data-case="${esc(c.id)}">record it</button></small>`)
     + `</div><div class="metric"><b>${esc(risk.level)}</b><small>current risk</small></div><div class="metric"><b>${gaps.length}</b><small>open material gaps</small></div><div class="metric"><b>${acts.length}</b><small>open actions</small></div></div>`
-    + `<details class="why" open><summary>Why ${esc(risk.level)}</summary><ul>${risk.drivers.map((r) => `<li>${riskChip(r.level)} ${esc(r.said)}${r.inputs.length ? `<br><span class="small">Looked at: ${r.inputs.map(esc).join("; ")}</span>` : ""}</li>`).join("") || "<li>No risk rule fired.</li>"}</ul>`
-    + (c.intakeAssessment ? `<p class="small">Assessed ${esc(c.intakeAssessment)} at intake; shown for context, not used in the calculation.</p>` : "") + `</details>`
+    /* What is blocking the next move, above the fold. The full ledger is one
+       disclosure down; this is the part somebody has to act on. */
+    + (uncovered.length
+      ? `<div class="blockers"><div class="eyebrow">Blocking the next step</div><ul>`
+        + uncovered.map((e) => `<li><strong>${esc(e.title)}</strong> — ${esc(D.STATUS_SAID[D.evidenceStatus(e)])}`
+          + ` <a class="bw-action-text" href="#ev-${encodeURIComponent(e.id)}">Go to it</a></li>`).join("")
+        + `</ul></div>`
+      : `<div class="blockers ok"><div class="eyebrow">Blocking the next step</div>`
+        + `<p>The material evidence needed for the current decision has been reviewed.</p></div>`)
     + (c.type === "shortage" ? timingPanel(s, c, today) : "")
     + (c.type === "claim" ? claimPanel(c) : "")
-    + `<div class="panel-head"><div><div class="eyebrow">Evidence ledger</div><h2>What do we actually know?</h2></div><button class="bw-action-secondary" data-action="add-evidence" data-case="${esc(c.id)}">Add evidence</button></div>`
-    + c.evidence.map((e) => evidenceItem(s, c, e)).join("")
     + `</div>`
     + quotesPanel(s, c)
-    + (decisions.length ? `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Decisions</div><h2>${decisions.length} on this case</h2></div></div>${decisions.map((d) => decisionCard(s, d)).join("")}</div>` : "")
+
+    /* Everything that makes the case defensible rather than actionable. It is
+       all still here, unchanged — it stopped competing with the next move. */
+    + `<details class="case-detail"${viaEvidence ? " open" : ""}><summary>Show evidence &amp; case detail</summary>`
+    + `<div class="bw-panel"><details class="why" open><summary>Why ${esc(risk.level)}</summary><ul>${risk.drivers.map((r) => `<li>${riskChip(r.level)} ${esc(r.said)}${r.inputs.length ? `<br><span class="small">Looked at: ${r.inputs.map(esc).join("; ")}</span>` : ""}</li>`).join("") || "<li>No risk rule fired.</li>"}</ul>`
+    + (c.intakeAssessment ? `<p class="small">Assessed ${esc(c.intakeAssessment)} at intake; shown for context, not used in the calculation.</p>` : "") + `</details>`
+    + `<div class="panel-head"><div><div class="eyebrow">Evidence</div><h2>What we know</h2></div><button class="bw-action-secondary" data-action="add-evidence" data-case="${esc(c.id)}">Add evidence</button></div>`
+    + `<p class="small why-matters">A decision cannot rest on missing or unreviewed evidence — BuyrWorld blocks it.</p>`
+    + c.evidence.map((e) => evidenceItem(s, c, e)).join("")
+    + `</div>`
+    + (decisions.length ? `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Decisions</div><h2>${decisions.length} on this case</h2></div></div><p class="small why-matters">BuyrWorld keeps exactly what was known when each decision was made.</p>${decisions.map((d) => decisionCard(s, d)).join("")}</div>` : "")
+    + `</details>`
     + `</section><aside class="span-4">`
     + `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Linked BuyrFlow work</div><h2>${acts.length} open</h2></div></div>${acts.map((a) => actionRow(s, a, today)).join("") || '<div class="empty">No open actions.</div>'}`
     + (closed.length ? `<details><summary>${closed.length} closed</summary>${closed.map((a) => `<div class="row"><span class="dot" aria-hidden="true"></span><div><strong>${esc(a.ref)} · ${esc(a.title)}</strong><p>Actual: ${esc(a.actualResult)}</p></div></div>`).join("")}</details>` : "") + `</div>`
@@ -307,14 +426,71 @@ function flowButtons(s, a, today) {
   return b.join("");
 }
 
+/**
+ * My work — a list first, the board behind a disclosure.
+ *
+ * Two kinds of thing live here and the page says which is which. Personal
+ * tasks are yours and move in one click. Case work carries evidence and
+ * authority rules, so it keeps its own controls and its own page; here it
+ * appears only so the day is in one place.
+ *
+ * The six-column board is unchanged underneath. It is the right view for
+ * somebody running a process and the wrong one for somebody opening their
+ * work at nine in the morning.
+ */
 export function renderFlow(s, ctx) {
+  const today = ctx.today;
+  const user = s.settings.user;
+  const me = user ? (s.people || []).find((p) => p.name === user.name) : null;
+  const mine = D.myTasks(s, me?.id || null);
+
+  const dated = (t) => D.isIsoDate(t.dueDate);
+  const todayTasks = mine.filter((t) => t.status !== D.TASK_STATUS.WAITING && dated(t) && t.dueDate <= today);
+  const upcoming = mine.filter((t) => t.status !== D.TASK_STATUS.WAITING && (!dated(t) || t.dueDate > today));
+  const waitingTasks = mine.filter((t) => t.status === D.TASK_STATUS.WAITING);
+  const caseWork = s.actions.filter((a) => a.stage !== "closed" && a.caseId);
+
+  const section = (title, items, empty) =>
+    `<section class="bw-panel"><div class="panel-head"><div class="eyebrow">${esc(title)}</div></div>`
+    + `<div class="task-list">${items.length ? items.map((t) => taskRow(s, t, today)).join("") : `<div class="empty">${empty}</div>`}</div></section>`;
+
+  return pageHead("My work", "Everything on your plate", "Your own tasks and the case work assigned to you. Case work keeps its evidence and approval rules in the background.")
+    + `<div class="hint-slot" data-hint="flow"></div>`
+    + `<div class="toolbar"><button class="bw-action-primary" data-action="add-task">+ Add task</button></div>`
+    + section("Today", todayTasks, "Nothing due today.")
+    + section("Upcoming", upcoming, "Nothing scheduled.")
+    + section("Waiting", waitingTasks, "You are not waiting on anyone.")
+    + `<section class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Case work</div><h2>Governed by evidence and approvals</h2></div><a class="bw-action-text" href="/cases">All cases →</a></div>`
+    + (caseWork.length ? caseWork.map((a) => {
+      const c = D.caseById(s, a.caseId);
+      const ev = a.evidenceId ? D.evidenceById(s, a.evidenceId).e : null;
+      return `<div class="row"><span class="dot ${a.stage === "decision" ? "critical" : ""}" aria-hidden="true"></span>`
+        + `<div><strong>${esc(c?.ref || "")} · ${esc(a.title)}</strong>`
+        + `<p>${esc(plainStage(a.stage))}${ev ? ` · ${esc(D.STATUS_SAID[D.evidenceStatus(ev)])}` : ""} · ${dueText(a, today)}</p></div>`
+        + `<a class="bw-action-secondary" href="/cases?id=${encodeURIComponent(a.caseId)}${ev ? `#ev-${encodeURIComponent(ev.id)}` : ""}">Open</a></div>`;
+    }).join("") : `<div class="empty">No case work is open.</div>`)
+    + `</section>`
+    + `<details class="workflow-board"><summary>Show workflow board</summary>${flowBoard(s, ctx)}</details>`;
+}
+
+/** The internal stage, in the words a buyer would use for it. */
+function plainStage(stage) {
+  return ({
+    investigate: "To do", prepare: "In progress", waiting: "Waiting",
+    decision: "Needs a decision", execute: "Ready to act",
+    validate: "Ready to finish", closed: "Done",
+  })[stage] || D.STAGE_LABEL[stage] || stage;
+}
+
+/** The six-column board, unchanged. Reached from the disclosure above. */
+function flowBoard(s, ctx) {
   const today = ctx.today;
   const focus = ctx.params.get("focus");
   const focusAction = focus ? D.actionById(s, focus) : null;
   const active = ctx.params.get("stage") || (focusAction && focusAction.stage !== "closed" ? focusAction.stage : "investigate");
   const open = s.actions.filter((a) => a.stage !== "closed");
   const closed = s.actions.filter((a) => a.stage === "closed");
-  return pageHead("BuyrFlow", "Execute the case, not another tracker", "Each kind of action has one path. Evidence work moves when evidence arrives and is judged; execution waits for an authorising decision; nothing closes except from Validate.")
+  return `<p class="small board-note">Each kind of action has one path. Evidence work moves when evidence arrives and is judged; execution waits for an authorising decision; nothing closes except from Validate.</p>`
     + `<div class="toolbar flow-toolbar"><button class="bw-action-primary" data-action="add-action">Add action</button><label class="flow-stage-picker">Stage <select id="flow-stage-filter" data-change="flow-stage">${D.BOARD.map((id) => `<option value="${id}"${id === active ? " selected" : ""}>${esc(D.STAGE_LABEL[id])} · ${open.filter((a) => a.stage === id).length}</option>`).join("")}</select></label></div>`
     + `<div class="flow-board">${D.BOARD.map((stage) => {
       const items = open.filter((a) => a.stage === stage);
