@@ -1,0 +1,45 @@
+name: Apply Stage 5 RFQ Generator
+
+on:
+  push:
+    branches:
+      - ux-simplification-v091
+    paths:
+      - scripts/apply-stage5-rfq-generator.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ux-simplification-v091
+          fetch-depth: 0
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Apply RFQ Generator source transformation
+        run: python3 scripts/apply-stage5-rfq-generator.py
+      - name: Run complete BuyrFlow audit
+        run: npm run check
+      - name: Check patch integrity
+        run: git diff --check
+      - name: Commit audited implementation
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No generated changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/domain.js public/views.js public/app.js public/index.html package.json tests/rfq-generator.test.mjs FLAGSHIP_IMPLEMENTATION_PROGRAM.md RELEASE_B_V013.md
+          git commit -m "feat: integrate RFQ Generator into Procurement Cases"
+          git push origin HEAD:ux-simplification-v091
