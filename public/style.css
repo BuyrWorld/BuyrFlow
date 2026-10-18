@@ -181,3 +181,5 @@ body.dialog-open,body.nav-open{overflow:hidden}
   text-decoration:underline;font-size:inherit;min-height:44px}
 .linklike:focus-visible{outline:2px solid var(--bw-accent);outline-offset:2px;border-radius:3px}
 @media(min-width:721px){.linklike{min-height:0}}
+
+.rfq-summary{display:grid;grid-template-columns:1.1fr 1fr 1.2fr;gap:8px;margin:12px 0}.rfq-summary>div{padding:11px;border:1px solid var(--bw-border);border-radius:var(--bw-r);background:var(--bw-surface-2)}.rfq-summary small{display:block;color:var(--bw-subtle);font-size:9px;font-weight:700;letter-spacing:.1em;margin-bottom:5px}.rfq-summary strong{display:block;color:var(--bw-text);line-height:1.4}@media(max-width:720px){.rfq-summary{grid-template-columns:1fr}}
