@@ -1,10 +1,6 @@
 /**
  * v0.9.1 daily work — simple on the surface, rigorous underneath.
  *
- * The native implementation in index.html / views.js / app.js. The guided
- * preview shell reached with ?simple=1 is a separate thing and has its own
- * file, tests/simple-ux.test.mjs.
- *
  * These check the surface: that the first screen is about a person's day,
  * that the detail is still present but no longer first, and that the
  * governed machinery is reachable rather than removed.

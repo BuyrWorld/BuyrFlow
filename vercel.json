@@ -5,16 +5,6 @@
   "outputDirectory": "public",
   "cleanUrls": false,
   "rewrites": [
-    {
-      "source": "/",
-      "has": [{ "type": "query", "key": "simple", "value": "1" }],
-      "destination": "/index-simple.html"
-    },
-    {
-      "source": "/(cases|flow|suppliers|decisions|tools)",
-      "has": [{ "type": "query", "key": "simple", "value": "1" }],
-      "destination": "/index-simple.html"
-    },
     { "source": "/(cases|flow|suppliers|decisions|tools)", "destination": "/index.html" }
   ],
   "headers": [
