@@ -199,8 +199,14 @@ function claimPanel(c) {
 
 function quotesPanel(s, c) {
   const rows = D.quoteComparison(s, c);
-  return `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Supplier positions</div><h2>Compared on what can be compared</h2></div><button class="bw-action-secondary" data-action="link-supplier" data-case="${esc(c.id)}">Link supplier</button></div>`
-    + `<p class="small">No composite score. Weighting price, lead time and delivery into one number is a policy choice this build does not make for you.</p>`
+  const priced = rows.filter((r) => Number.isInteger(r.unitPricePence));
+  const comparableUnits = new Set(priced.map((r) => r.unit).filter(Boolean));
+  const canRun = priced.length >= 2 && comparableUnits.size === 1 && priced.every((r) => r.unit);
+  const recordedEvidence = c.evidence.find((e) => e.capabilityId === "quote-comparator" && e.measure === "price-comparison");
+  const recorded = recordedEvidence ? D.current(recordedEvidence) : null;
+  return `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Quote Comparator · deterministic</div><h2>Compared on what can actually be compared</h2></div><div class="toolbar"><button class="bw-action-primary" data-action="quote-comparator" data-case="${esc(c.id)}"${canRun ? "" : " disabled"}>${recorded ? "Refresh comparison" : "Run Quote Comparator"}</button><button class="bw-action-secondary" data-action="link-supplier" data-case="${esc(c.id)}">Link supplier</button></div></div>`
+    + `<p class="small">No composite score and no automatic award. Price, lead time and approval status stay visible as separate commercial facts.${recorded ? ` Last frozen into Case evidence ${esc(D.formatStamp(recorded.recordedAt))}.` : ""}</p>`
+    + (!canRun ? `<div class="callout">Add at least two prices in the same unit before running the comparator. BuyrWorld will not normalise unlike units by guessing.</div>` : "")
     + (rows.length ? `<div class="table-wrap"><table><caption class="sr-only">Supplier positions on ${esc(c.ref)}</caption><thead><tr><th scope="col">Supplier</th><th scope="col">Approval</th><th scope="col">Lead time</th><th scope="col">Unit price</th><th scope="col">Above lowest</th><th scope="col">OTD</th></tr></thead><tbody>`
       + rows.map((r) => `<tr><th scope="row">${esc(r.name)}${r.incumbent ? ' <span class="tag">incumbent</span>' : ""}</th><td>${esc(r.approval)}</td><td>${Number.isInteger(r.leadDays) ? `${r.leadDays} days` : "not quoted"}</td>`
         + `<td>${Number.isInteger(r.unitPricePence) ? `${esc(D.formatPence(r.unitPricePence))}${r.unit ? `/${esc(r.unit)}` : ""}` : "not quoted"}</td>`

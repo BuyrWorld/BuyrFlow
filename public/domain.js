@@ -27,7 +27,7 @@
  */
 
 export const SCHEMA = 3;
-export const VERSION = "0.11.0";
+export const VERSION = "0.12.0";
 
 /* ================================================================ identity */
 
@@ -1090,6 +1090,68 @@ const HANDLERS = {
       + "No supplier commitment was made.");
     return { ...x, evidenceIds: [exposure.evidence.id, aboveCap.evidence.id],
       createdGapActions: createdGapActions.length, negotiationActionId: negotiation.id };
+  },
+
+  runQuoteComparator(s, cmd, ctx) {
+    const c = caseById(s, cmd.caseId);
+    need(c, "case", "That case does not exist.");
+    const rows = quoteComparison(s, c);
+    const priced = rows.filter((r) => Number.isInteger(r.unitPricePence));
+    need(priced.length >= 2, "quotes", "Quote Comparator needs at least two supplier prices before it can compare anything.");
+    const units = new Set(priced.map((r) => r.unit).filter(Boolean));
+    need(units.size === 1 && priced.every((r) => r.unit), "units", "The priced quotations do not use one comparable unit. Normalise the quote units before comparing them.");
+
+    const sorted = [...priced].sort((a, b) => a.unitPricePence - b.unitPricePence || a.name.localeCompare(b.name));
+    const lowest = sorted[0], highest = sorted[sorted.length - 1];
+    const spreadPence = highest.unitPricePence - lowest.unitPricePence;
+    const spreadBp = lowest.unitPricePence > 0 ? mulDivRound(spreadPence, 10000, lowest.unitPricePence) : null;
+    const quantity = Number.isInteger(c.requirement?.quantity) && c.requirement.quantity > 0 ? c.requirement.quantity : null;
+    const totalSpreadPence = quantity ? spreadPence * quantity : null;
+    need(totalSpreadPence === null || Number.isSafeInteger(totalSpreadPence), "size", "The quote exposure is too large to calculate safely.");
+
+    const leads = rows.filter((r) => Number.isInteger(r.leadDays)).sort((a, b) => a.leadDays - b.leadDays || a.name.localeCompare(b.name));
+    const fastest = leads[0] || null, slowest = leads.length ? leads[leads.length - 1] : null;
+    const capabilityId = "quote-comparator";
+    const basis = rows.map((r) => `${r.name}: ${Number.isInteger(r.unitPricePence) ? `${formatPence(r.unitPricePence)}/${r.unit}` : "price not recorded"}, ${Number.isInteger(r.leadDays) ? `${r.leadDays} days` : "lead time not recorded"}, ${r.approval}`).join("; ");
+
+    const price = upsertCapabilityDerivedEvidence(c, ctx, {
+      capabilityId, measure: "price-comparison", title: "Quote price comparison — derived",
+      textValue: `${lowest.name} is the lowest comparable recorded price at ${formatPence(lowest.unitPricePence)}/${lowest.unit}. ${highest.name} is ${formatPence(spreadPence)}/${lowest.unit}${spreadBp === null ? "" : ` (${formatBp(spreadBp)})`} above it${totalSpreadPence === null ? "." : `, equal to ${formatPence(totalSpreadPence)} across ${quantity} ${lowest.unit}.`}`,
+      basis, material: true,
+    });
+    const lead = upsertCapabilityDerivedEvidence(c, ctx, {
+      capabilityId, measure: "lead-time-comparison", title: "Quote lead-time comparison — derived",
+      textValue: fastest && slowest
+        ? `${fastest.name} has the shortest recorded lead time at ${fastest.leadDays} days; ${slowest.name} has the longest at ${slowest.leadDays} days. This is not a supplier award or weighted score.`
+        : "Comparable lead time is not recorded for enough suppliers to rank delivery positions. No value was guessed.",
+      basis, material: true,
+    });
+
+    const covered = new Set(openActions(s, c.id).map((a) => a.evidenceId).filter(Boolean));
+    const createdGapActions = [];
+    for (const e of openGaps(c)) {
+      if (covered.has(e.id)) continue;
+      const a = newAction(s, ctx, { title: `Close evidence gap: ${e.title}`, caseId: c.id, kind: KIND.EVIDENCE,
+        evidenceId: e.id, owner: ctx.actor.role, priority: "high", dueDate: addDays(ctx.today, 2),
+        completionTest: `${e.title} received and assessed`, expectedResult: `${e.title} received and assessed`, capabilityId });
+      createdGapActions.push(a.ref);
+    }
+
+    let review = openActions(s, c.id).find((a) => a.capabilityId === capabilityId && a.kind === KIND.EXECUTION);
+    if (!review) {
+      review = newAction(s, ctx, { title: "Review quote trade-offs and record the sourcing decision", caseId: c.id, kind: KIND.EXECUTION,
+        owner: ctx.actor.role, priority: "high", dueDate: addDays(ctx.today, 2),
+        completionTest: "Price, lead time, approval status and evidence reviewed; a human sourcing decision recorded",
+        expectedResult: "A defensible human sourcing decision with no hidden composite score", authority: "Human sourcing decision required", capabilityId });
+    }
+
+    ctx.emit(c.id, "Quote Comparator run",
+      `${priced.length} priced quotations compared in ${lowest.unit}. Lowest ${lowest.name} at ${formatPence(lowest.unitPricePence)}/${lowest.unit}; `
+      + `spread ${formatPence(spreadPence)}/${lowest.unit}${totalSpreadPence === null ? "" : `, ${formatPence(totalSpreadPence)} across recorded quantity`}. `
+      + `Derived evidence ${price.changed || lead.changed ? "updated" : "unchanged"}. No supplier was scored, selected or awarded.`);
+    return { lowestSupplierId: lowest.supplierId, lowestUnitPricePence: lowest.unitPricePence, highestSupplierId: highest.supplierId,
+      spreadPence, spreadBp, quantity, totalSpreadPence, evidenceIds: [price.evidence.id, lead.evidence.id],
+      createdGapActions: createdGapActions.length, reviewActionId: review.id };
   },
 
   addEvidence(s, cmd, ctx) {

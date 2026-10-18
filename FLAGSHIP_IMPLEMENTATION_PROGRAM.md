@@ -502,3 +502,20 @@ Implemented as a real Case capability rather than a separate mini-app:
 - never accepts the increase, contacts the supplier or bypasses the existing human decision/approval gate.
 
 Stage 5 remains **IN PROGRESS** until the capability is exercised through the deployed browser workflow and the next capabilities (Quote Comparator / RFQ / Should-Cost) use the same Case contract.
+
+
+## Release B implementation log — v0.12.0 (18 October 2026)
+
+### Stage 5 second vertical slice — Quote Comparator
+
+Implemented using the same Case capability contract as Price Increase Defender:
+- compares at least two recorded supplier prices only when units are genuinely comparable;
+- calculates unit-price spread and recorded-quantity exposure exactly in pence;
+- calculates price spread in basis points without floating-point arithmetic;
+- freezes price and lead-time comparison as versioned DERIVED evidence;
+- creates missing evidence work without duplicating existing gap actions;
+- creates one governed sourcing-review action;
+- refuses unlike units rather than inventing a conversion;
+- deliberately does not create a composite supplier score, select a winner or award business.
+
+Stage 5 remains **IN PROGRESS**. The capability pattern is now proven across commercial-change and multi-quote cases; RFQ / Should-Cost / technical evidence remain to integrate before Stage 5 can be considered broadly complete.

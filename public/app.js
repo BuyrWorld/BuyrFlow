@@ -844,6 +844,7 @@ const ACTIONS = {
   "advance": (b) => runAndShow({ type: "advanceAction", actionId: b.dataset.id }, "Action progressed."),
   "close-action": (b) => closeActionForm(b.dataset.id),
   "price-defender": (b) => priceDefenderForm(b.dataset.case),
+  "quote-comparator": (b) => runAndShow({ type: "runQuoteComparator", caseId: b.dataset.case }, (r) => r.result.totalSpreadPence === null ? `Quote comparison frozen into Case evidence.` : `Quote comparison frozen. Recorded quantity exposure between lowest and highest is ${D.formatPence(r.result.totalSpreadPence)}.`),
   "case-value": (b) => caseValueForm(b.dataset.case),
   "record-decision": (b) => decisionForm(b.dataset.case),
   "approve": (b) => approveForm(b.dataset.id),
