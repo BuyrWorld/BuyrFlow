@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0B1014">
+<title>BuyrWorld</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/simple-mode.css">
+</head>
+<body class="simple-mode">
+<a class="skip-link" href="#app">Skip to content</a>
+<div class="app-shell">
+  <aside id="sidebar" class="sidebar">
+    <a class="brand" href="/"><img src="/buyrworld-logo.png" alt="BuyrWorld" width="168" height="47"><small>Procurement work, made clearer</small></a>
+    <nav class="side-section side-nav" aria-label="Workspace">
+      <div class="side-label">Workspace</div>
+      <a href="/" data-nav="today"><span class="icon" aria-hidden="true">⌂</span>Today</a>
+      <a href="/flow" data-nav="flow"><span class="icon" aria-hidden="true">✓</span>My work</a>
+      <details class="simple-more-nav">
+        <summary><span class="icon" aria-hidden="true">•••</span>More</summary>
+        <div class="simple-more-links">
+          <a href="/cases" data-nav="cases"><span class="icon" aria-hidden="true">◫</span>Cases</a>
+          <a href="/suppliers" data-nav="suppliers"><span class="icon" aria-hidden="true">◎</span>Suppliers</a>
+          <a href="/decisions" data-nav="decisions"><span class="icon" aria-hidden="true">✓</span>Decision memory</a>
+        </div>
+      </details>
+    </nav>
+    <div class="side-foot">Release A · guided workspace<br>Evidence controls remain underneath.</div>
+  </aside>
+  <section class="workspace">
+    <header class="topbar">
+      <button id="menu" class="bw-action-secondary mobile-menu" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+      <button id="simple-help" class="simple-help" type="button" aria-label="Show BuyrFlow guide">?</button>
+      <div class="top-state"><span class="live-dot" aria-hidden="true"></span> review workspace</div>
+    </header>
+    <div id="banner" role="alert" hidden></div>
+    <div id="alert-region" class="alert-region" role="alert" aria-live="assertive"></div>
+    <main id="app" class="content" tabindex="-1"><noscript><div class="callout"><strong>JavaScript is required for the working workspace.</strong></div></noscript></main>
+  </section>
+</div>
+<div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
+<script type="module" src="/app.js"></script>
+<script type="module" src="/simple-mode.js"></script>
+</body>
+</html>
