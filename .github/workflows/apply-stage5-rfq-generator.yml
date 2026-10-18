@@ -6,6 +6,7 @@ on:
       - ux-simplification-v091
     paths:
       - scripts/apply-stage5-rfq-generator.py
+      - scripts/reapply-stage5-rfq-style.py
 
 permissions:
   contents: write
@@ -41,5 +42,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/domain.js public/views.js public/app.js public/index.html public/style.css package.json tests/rfq-generator.test.mjs FLAGSHIP_IMPLEMENTATION_PROGRAM.md RELEASE_B_V013.md
-          git commit -m "feat: integrate RFQ Generator into Procurement Cases"
+          git commit -m "feat: complete RFQ Generator presentation"
           git push origin HEAD:ux-simplification-v091
