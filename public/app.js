@@ -845,6 +845,7 @@ const ACTIONS = {
   "close-action": (b) => closeActionForm(b.dataset.id),
   "price-defender": (b) => priceDefenderForm(b.dataset.case),
   "quote-comparator": (b) => runAndShow({ type: "runQuoteComparator", caseId: b.dataset.case }, (r) => r.result.totalSpreadPence === null ? `Quote comparison frozen into Case evidence.` : `Quote comparison frozen. Recorded quantity exposure between lowest and highest is ${D.formatPence(r.result.totalSpreadPence)}.`),
+  "rfq-generator": (b) => runAndShow({ type: "runRfqGenerator", caseId: b.dataset.case }, (r) => `${r.result.rfqRef} v${r.result.version} prepared as a draft for ${r.result.supplierCount} supplier${r.result.supplierCount === 1 ? "" : "s"}. Nothing was sent.`),
   "case-value": (b) => caseValueForm(b.dataset.case),
   "record-decision": (b) => decisionForm(b.dataset.case),
   "approve": (b) => approveForm(b.dataset.id),

@@ -519,3 +519,20 @@ Implemented using the same Case capability contract as Price Increase Defender:
 - deliberately does not create a composite supplier score, select a winner or award business.
 
 Stage 5 remains **IN PROGRESS**. The capability pattern is now proven across commercial-change and multi-quote cases; RFQ / Should-Cost / technical evidence remain to integrate before Stage 5 can be considered broadly complete.
+
+
+## Release B implementation log — v0.13.0 (18 October 2026)
+
+### Stage 5 third vertical slice — RFQ Generator
+
+Implemented as a versioned structured Case artefact rather than generated prose:
+- consumes quantity, unit, specification/requirement, linked suppliers and current evidence gaps;
+- refuses to invent missing requirement data;
+- creates/refreshes one versioned RFQ draft per Case;
+- carries unresolved material evidence into the RFQ as explicit clarifications;
+- freezes an RFQ-prepared DERIVED evidence item with provenance;
+- creates one human RFQ-review action before any external issue step;
+- never sends the RFQ or commits the organisation to a supplier;
+- unchanged reruns are idempotent, while changed Case inputs create a new RFQ version.
+
+Stage 5 remains **IN PROGRESS**. Price Increase Defender, Quote Comparator and RFQ Generator now demonstrate the shared capability contract across three workflows. Should-Cost and technical/document evidence remain the next depth targets.

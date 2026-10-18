@@ -27,7 +27,7 @@
  */
 
 export const SCHEMA = 3;
-export const VERSION = "0.12.0";
+export const VERSION = "0.13.0";
 
 /* ================================================================ identity */
 
@@ -1152,6 +1152,73 @@ const HANDLERS = {
     return { lowestSupplierId: lowest.supplierId, lowestUnitPricePence: lowest.unitPricePence, highestSupplierId: highest.supplierId,
       spreadPence, spreadBp, quantity, totalSpreadPence, evidenceIds: [price.evidence.id, lead.evidence.id],
       createdGapActions: createdGapActions.length, reviewActionId: review.id };
+  },
+
+  runRfqGenerator(s, cmd, ctx) {
+    const c = caseById(s, cmd.caseId);
+    need(c, "case", "That case does not exist.");
+    need(["sourcing", "quote", "shortage"].includes(c.type), "case-type", "RFQ Generator is for sourcing, quote-comparison or supply-recovery cases.");
+    const missing = [];
+    if (!Number.isInteger(c.requirement?.quantity) || c.requirement.quantity <= 0) missing.push("quantity");
+    if (!text(c.requirement?.unit)) missing.push("unit");
+    if (!text(c.requirement?.spec)) missing.push("requirement / specification");
+    need(!missing.length, "requirement", `RFQ draft needs ${missing.join(", ")} before it can be prepared.`);
+    need(c.quotes.length, "suppliers", "Link at least one supplier to the case before preparing an RFQ draft.");
+
+    if (!Array.isArray(s.rfqs)) s.rfqs = [];
+    if (!s.seq.rfq) s.seq.rfq = 0;
+    const capabilityId = "rfq-generator";
+    const supplierSnapshot = c.quotes.map((q) => {
+      const sp = supplierById(s, q.supplierId);
+      return { supplierId: q.supplierId, name: sp?.name || "Unknown supplier", approval: q.approval };
+    });
+    const gaps = openGaps(c);
+    const snapshot = {
+      requirement: { quantity: c.requirement.quantity, unit: c.requirement.unit, spec: c.requirement.spec, needBy: c.requirement.needBy || null },
+      suppliers: supplierSnapshot,
+      openClarifications: gaps.map((e) => ({ evidenceId: e.id, title: e.title, status: evidenceStatus(e) })),
+      responseFields: ["unit price", "lead time", "commercial terms", "capacity confirmation", "exceptions / deviations"],
+    };
+    const fingerprint = JSON.stringify(snapshot);
+    let rfq = s.rfqs.find((x) => x.caseId === c.id && x.capabilityId === capabilityId);
+    let versionChanged = false;
+    if (!rfq) {
+      s.seq.rfq += 1;
+      rfq = { id: ctx.id(), ref: `RFQ-${String(s.seq.rfq).padStart(4, "0")}`, caseId: c.id, capabilityId,
+        status: "draft", createdAt: ctx.now, createdBy: ctx.actor, versions: [] };
+      s.rfqs.unshift(rfq);
+    }
+    const currentVersion = rfq.versions[rfq.versions.length - 1];
+    if (!currentVersion || currentVersion.fingerprint !== fingerprint) {
+      rfq.versions.push({ version: rfq.versions.length + 1, at: ctx.now, by: ctx.actor, fingerprint, snapshot });
+      versionChanged = true;
+    }
+
+    const v = rfq.versions[rfq.versions.length - 1];
+    const evidence = upsertCapabilityDerivedEvidence(c, ctx, {
+      capabilityId, measure: "rfq-draft", title: "RFQ draft prepared — derived",
+      textValue: `${rfq.ref} v${v.version} prepared for ${supplierSnapshot.length} linked supplier${supplierSnapshot.length === 1 ? "" : "s"}: ${c.requirement.quantity} ${c.requirement.unit}, ${c.requirement.spec}.${gaps.length ? ` ${gaps.length} material clarification${gaps.length === 1 ? " remains" : "s remain"} open and are listed in the draft.` : " No material evidence gaps remain open."}`,
+      basis: `Structured from ${c.ref} requirement, linked suppliers and current evidence state. Draft only; no external message was sent.`,
+      material: true,
+    });
+
+    let review = openActions(s, c.id).find((a) => a.capabilityId === capabilityId && a.kind === KIND.EXECUTION);
+    if (!review) {
+      review = newAction(s, ctx, { title: `Review ${rfq.ref} before external issue`, caseId: c.id, kind: KIND.EXECUTION,
+        owner: ctx.actor.role, priority: gaps.length ? "high" : "normal", stage: "prepare", dueDate: addDays(ctx.today, 2),
+        completionTest: "RFQ requirement, supplier list, clarifications and commercial response fields reviewed by a human",
+        expectedResult: "Approved RFQ content ready for an authorised external issue step", authority: "Human external communication approval required", capabilityId });
+    } else {
+      review.title = `Review ${rfq.ref} before external issue`;
+      review.priority = gaps.length ? "high" : "normal";
+    }
+
+    ctx.emit(c.id, "RFQ draft prepared",
+      `${rfq.ref} v${v.version} prepared for ${supplierSnapshot.length} supplier${supplierSnapshot.length === 1 ? "" : "s"}. `
+      + `${gaps.length} open material clarification${gaps.length === 1 ? "" : "s"} carried into the draft. `
+      + `No RFQ was sent and no supplier commitment was made.`);
+    return { rfqId: rfq.id, rfqRef: rfq.ref, version: v.version, versionChanged, evidenceId: evidence.evidence.id,
+      supplierCount: supplierSnapshot.length, clarificationCount: gaps.length, reviewActionId: review.id };
   },
 
   addEvidence(s, cmd, ctx) {

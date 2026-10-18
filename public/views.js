@@ -216,6 +216,21 @@ function quotesPanel(s, c) {
     + `</div>`;
 }
 
+function rfqPanel(s, c) {
+  if (!["sourcing", "quote", "shortage"].includes(c.type)) return "";
+  const rfq = (s.rfqs || []).find((x) => x.caseId === c.id && x.capabilityId === "rfq-generator");
+  const v = rfq?.versions?.[rfq.versions.length - 1];
+  const requirementReady = Number.isInteger(c.requirement?.quantity) && c.requirement.quantity > 0 && c.requirement.unit && c.requirement.spec;
+  const canRun = requirementReady && c.quotes.length > 0;
+  const gaps = D.openGaps(c);
+  return `<section class="bw-panel"><div class="panel-head"><div><div class="eyebrow">RFQ Generator · structured draft</div><h2>${rfq ? `${esc(rfq.ref)} · v${v.version}` : "Prepare an RFQ from this Case"}</h2></div><button class="bw-action-primary" data-action="rfq-generator" data-case="${esc(c.id)}"${canRun ? "" : " disabled"}>${rfq ? "Refresh RFQ draft" : "Prepare RFQ draft"}</button></div>`
+    + `<p class="lead">Builds the RFQ from the Case requirement, supplier list and current evidence. Draft only — BuyrWorld does not send it.</p>`
+    + (!canRun ? `<div class="callout">Before a draft can be prepared, record quantity, unit and specification/requirement, and link at least one supplier.</div>` : "")
+    + (v ? `<div class="rfq-summary"><div><small>REQUIREMENT</small><strong>${esc(v.snapshot.requirement.quantity)} ${esc(v.snapshot.requirement.unit)} · ${esc(v.snapshot.requirement.spec)}</strong></div><div><small>SUPPLIERS</small><strong>${v.snapshot.suppliers.map((x) => esc(x.name)).join(", ")}</strong></div><div><small>OPEN CLARIFICATIONS</small><strong>${v.snapshot.openClarifications.length ? v.snapshot.openClarifications.map((x) => esc(x.title)).join(", ") : "None"}</strong></div></div>` : "")
+    + (gaps.length ? `<p class="small">${gaps.length} material evidence gap${gaps.length === 1 ? " remains" : "s remain"}. They are carried into the draft as clarifications rather than silently treated as facts.</p>` : "")
+    + `</section>`;
+}
+
 function decisionCard(s, d, { compact = false } = {}) {
   const st = D.decisionStatus(s, d);
   const c = D.caseById(s, d.caseId);
@@ -288,6 +303,7 @@ export function renderCases(s, ctx) {
     + c.evidence.map((e) => evidenceItem(s, c, e)).join("")
     + `</div>`
     + quotesPanel(s, c)
+    + rfqPanel(s, c)
     + (decisions.length ? `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Decisions</div><h2>${decisions.length} on this case</h2></div></div>${decisions.map((d) => decisionCard(s, d)).join("")}</div>` : "")
     + `</section><aside class="span-4">`
     + `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Linked BuyrFlow work</div><h2>${acts.length} open</h2></div></div>${acts.map((a) => actionRow(s, a, today)).join("") || '<div class="empty">No open actions.</div>'}`
