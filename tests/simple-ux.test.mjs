@@ -37,3 +37,12 @@ test("a direct evidence link gets contextual guidance", () => {
   assert.match(guide, /location\.hash\.startsWith\("#ev-"\)/);
   assert.match(guide, /You opened a specific evidence item/);
 });
+
+test("simple mode preserves the original BuyrWorld dark design tokens", () => {
+  assert.match(css, /background:var\(--bw-surface\)/);
+  assert.match(css, /background:var\(--bw-surface-2\)/);
+  assert.match(css, /color:var\(--bw-text\)/);
+  assert.match(css, /var\(--bw-accent\)/);
+  assert.doesNotMatch(css, /background:\s*#fff\b/i);
+  assert.doesNotMatch(css, /color:\s*#111\b/i);
+});
