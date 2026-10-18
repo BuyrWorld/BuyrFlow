@@ -27,7 +27,7 @@
  */
 
 export const SCHEMA = 3;
-export const VERSION = "0.8.0";
+export const VERSION = "0.11.0";
 
 /* ================================================================ identity */
 
@@ -926,6 +926,23 @@ function cleanSource(src, fallbackFrom) {
   };
 }
 
+function upsertCapabilityDerivedEvidence(c, ctx, { capabilityId, measure, title, textValue, basis, material = true }) {
+  let e = c.evidence.find((x) => x.capabilityId === capabilityId && x.measure === measure);
+  const source = { kind: "calculation", document: "Price Increase Defender", from: "BuyrWorld deterministic commercial engine", date: ctx.today };
+  if (!e) {
+    e = newEvidence(ctx, { title, state: STATE.DERIVED, textValue, source, basis, material, question: false });
+    e.capabilityId = capabilityId;
+    e.measure = measure;
+    c.evidence.push(e);
+    return { evidence: e, changed: true };
+  }
+  const prev = current(e);
+  if (prev.text === textValue && prev.basis === basis) return { evidence: e, changed: false };
+  e.versions.push({ v: prev.v + 1, state: STATE.DERIVED, text: textValue, source, basis,
+    recordedAt: ctx.now, recordedBy: ctx.actor, assessment: null });
+  return { evidence: e, changed: true };
+}
+
 const HANDLERS = {
   setUser(s, cmd, ctx) {
     const u = validActor(cmd.user);
@@ -1002,6 +1019,77 @@ const HANDLERS = {
     });
     if (cmd.incumbent) c.incumbentId = sup.id;
     ctx.emit(c.id, "Supplier linked", `${sup.name} added to ${c.ref}${cmd.incumbent ? " as the incumbent" : ""}.`);
+  },
+
+  runPriceIncreaseDefender(s, cmd, ctx) {
+    const c = caseById(s, cmd.caseId);
+    need(c, "case", "That case does not exist.");
+    need(c.type === "claim", "case-type", "Price Increase Defender only runs on a supplier price or terms-change case.");
+    need(Number.isInteger(cmd.askBp), "ask", "Record the supplier increase being asked for.");
+    need(Number.isInteger(cmd.capBp), "cap", "Record the contractual cap or comparison threshold.");
+    need(Number.isInteger(cmd.annualSpendPence) && cmd.annualSpendPence >= 0, "spend", "Record the annual spend in pounds.");
+    if (cmd.effectiveDate) need(isIsoDate(cmd.effectiveDate), "effective-date", "The effective date is not a real date.");
+
+    c.claim = c.claim || { askBp: null, capBp: null, annualSpendPence: null, effectiveDate: null };
+    c.claim.askBp = cmd.askBp;
+    c.claim.capBp = cmd.capBp;
+    c.claim.annualSpendPence = cmd.annualSpendPence;
+    c.claim.effectiveDate = cmd.effectiveDate || c.claim.effectiveDate || null;
+
+    const x = claimExcess(c);
+    need(!x.withheld, "inputs", x.withheld || "The commercial inputs are incomplete.");
+    const capabilityId = "price-increase-defender";
+    const basis = `Supplier ask ${formatBp(x.askBp)}; contract cap ${formatBp(x.capBp)}; annual spend ${formatPence(x.spendPence)}. Exact integer arithmetic in basis points and pence.`;
+
+    const exposure = upsertCapabilityDerivedEvidence(c, ctx, {
+      capabilityId, measure: "annual-exposure", title: "Price increase exposure — derived",
+      textValue: `A ${formatBp(x.askBp)} supplier increase on ${formatPence(x.spendPence)} annual spend equals ${formatPence(x.askPence)} a year.`,
+      basis, material: true,
+    });
+    const aboveCap = upsertCapabilityDerivedEvidence(c, ctx, {
+      capabilityId, measure: "above-contract-cap", title: "Movement above contract cap — derived",
+      textValue: x.excessBp > 0
+        ? `The ask is ${formatPoints(x.excessBp)} above the ${formatBp(x.capBp)} cap: ${formatPence(x.excessPence)} a year requires exceptional evidence before acceptance.`
+        : `The ${formatBp(x.askBp)} ask does not exceed the ${formatBp(x.capBp)} contract cap.`,
+      basis, material: true,
+    });
+
+    const covered = new Set(openActions(s, c.id).map((a) => a.evidenceId).filter(Boolean));
+    const createdGapActions = [];
+    for (const e of openGaps(c)) {
+      if (covered.has(e.id)) continue;
+      const a = newAction(s, ctx, { title: `Close evidence gap: ${e.title}`, caseId: c.id, kind: KIND.EVIDENCE,
+        evidenceId: e.id, owner: ctx.actor.role, priority: "high", dueDate: addDays(ctx.today, 2),
+        completionTest: `${e.title} received and assessed`, expectedResult: `${e.title} received and assessed`, capabilityId });
+      createdGapActions.push(a.ref);
+    }
+
+    let negotiation = openActions(s, c.id).find((a) => a.capabilityId === capabilityId && a.kind === KIND.EXECUTION);
+    const challengeTitle = x.excessPence > 0
+      ? `Prepare challenge position for ${formatPence(x.excessPence)} annual exposure above cap`
+      : "Prepare evidence-backed response to supplier price change";
+    const expected = x.excessPence > 0
+      ? `Human decision supported by evidence on the ${formatPence(x.excessPence)} annual exposure above the contractual cap`
+      : "Human decision supported by the contract and supplier cost evidence";
+    if (!negotiation) {
+      negotiation = newAction(s, ctx, { title: challengeTitle, caseId: c.id, kind: KIND.EXECUTION,
+        owner: ctx.actor.role, priority: x.excessPence > 0 ? "high" : "normal", dueDate: addDays(ctx.today, 2),
+        completionTest: "Negotiation position reviewed against evidence and a human decision recorded",
+        expectedResult: expected, authority: "Human commercial decision required", capabilityId });
+    } else {
+      negotiation.title = challengeTitle;
+      negotiation.expectedResult = expected;
+      negotiation.priority = x.excessPence > 0 ? "high" : "normal";
+    }
+
+    ctx.emit(c.id, "Price Increase Defender run",
+      `${formatBp(x.askBp)} ask on ${formatPence(x.spendPence)} annual spend = ${formatPence(x.askPence)} a year; `
+      + `${formatPence(x.excessPence)} a year sits above the ${formatBp(x.capBp)} cap. `
+      + `Derived evidence ${exposure.changed || aboveCap.changed ? "updated" : "unchanged"}; `
+      + `${createdGapActions.length} missing-evidence action${createdGapActions.length === 1 ? "" : "s"} created. `
+      + "No supplier commitment was made.");
+    return { ...x, evidenceIds: [exposure.evidence.id, aboveCap.evidence.id],
+      createdGapActions: createdGapActions.length, negotiationActionId: negotiation.id };
   },
 
   addEvidence(s, cmd, ctx) {

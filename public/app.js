@@ -626,6 +626,37 @@ function addSupplierForm() {
   });
 }
 
+function priceDefenderForm(caseId) {
+  const c = D.caseById(state, caseId);
+  if (!c || c.type !== "claim") return;
+  const claim = c.claim || {};
+  openWorkbench({
+    title: `Price Increase Defender · ${c.ref}`,
+    lede: "Exact arithmetic first. Running this freezes the calculation into Case evidence and creates the work needed to support a human commercial decision. It never accepts the increase or contacts the supplier.",
+    submit: "Run Defender",
+    fields: [
+      { name: "ask", label: "Supplier increase asked for (%)", required: true, value: Number.isInteger(claim.askBp) ? D.formatBp(claim.askBp) : "", placeholder: "e.g. 7.8" },
+      { name: "cap", label: "Contract cap / comparison threshold (%)", required: true, value: Number.isInteger(claim.capBp) ? D.formatBp(claim.capBp) : "", placeholder: "e.g. 4" },
+      { name: "spend", label: "Annual spend (£)", required: true, value: Number.isInteger(claim.annualSpendPence) ? D.formatPence(claim.annualSpendPence) : "", placeholder: "e.g. 232,800" },
+      { name: "effectiveDate", label: "Requested effective date", type: "date", value: claim.effectiveDate || "" },
+    ],
+    onSubmit: (d) => {
+      const askBp = D.parsePercentToBp(d.ask);
+      const capBp = D.parsePercentToBp(d.cap);
+      const annualSpendPence = D.parseMoneyToPence(d.spend);
+      if (askBp === null) return { ok: false, refusal: "The supplier ask must be a percentage, like 7.8." };
+      if (capBp === null) return { ok: false, refusal: "The contract cap must be a percentage, like 4." };
+      if (annualSpendPence === null) return { ok: false, refusal: "Annual spend must be an amount in pounds." };
+      const r = run({ type: "runPriceIncreaseDefender", caseId: c.id, askBp, capBp, annualSpendPence, effectiveDate: d.effectiveDate || null });
+      if (r.ok) {
+        render();
+        toast(`Defender recorded ${D.formatPence(r.result.excessPence)} a year above the cap and created ${r.result.createdGapActions} missing-evidence action${r.result.createdGapActions === 1 ? "" : "s"}.`);
+      }
+      return r;
+    },
+  });
+}
+
 /* =========================================================== intake (Today) */
 
 function redrawIntake() {
@@ -812,6 +843,7 @@ const ACTIONS = {
   "add-action": (b) => addActionForm(b.dataset.case),
   "advance": (b) => runAndShow({ type: "advanceAction", actionId: b.dataset.id }, "Action progressed."),
   "close-action": (b) => closeActionForm(b.dataset.id),
+  "price-defender": (b) => priceDefenderForm(b.dataset.case),
   "case-value": (b) => caseValueForm(b.dataset.case),
   "record-decision": (b) => decisionForm(b.dataset.case),
   "approve": (b) => approveForm(b.dataset.id),

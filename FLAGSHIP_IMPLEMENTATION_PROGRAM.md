@@ -485,3 +485,20 @@ This pass responds to the independent audit of v0.7.0, which found the v0.7 gate
 | 4 — BuyrFlow execution | **IN PROGRESS** | Lifecycle enforced in one place; exception breadth (cancelled work, reassignment, re-opened cases) not yet modelled. |
 
 No stage is marked complete because tests pass.
+
+
+## Release B implementation log — v0.11.0 (18 October 2026)
+
+### Stage 5 vertical slice — Price Increase Defender
+
+Implemented as a real Case capability rather than a separate mini-app:
+- consumes a supplier commercial-change Procurement Case;
+- validates supplier ask, contract cap and annual spend;
+- calculates ask/cap/excess using integer basis points and pence only;
+- freezes the calculation as versioned DERIVED evidence with explicit basis/provenance;
+- creates missing evidence actions without duplication;
+- creates one governed negotiation-preparation action;
+- re-running with unchanged inputs is idempotent; changed inputs create a new evidence version;
+- never accepts the increase, contacts the supplier or bypasses the existing human decision/approval gate.
+
+Stage 5 remains **IN PROGRESS** until the capability is exercised through the deployed browser workflow and the next capabilities (Quote Comparator / RFQ / Should-Cost) use the same Case contract.

@@ -186,11 +186,15 @@ function timingPanel(s, c, today) {
 
 function claimPanel(c) {
   const x = D.claimExcess(c);
-  if (x.withheld) return `<div class="calc"><div class="eyebrow">Ask against the contract — derived</div><p>${esc(x.withheld)}</p></div>`;
-  return `<div class="calc"><div class="eyebrow">Ask against the contract — derived</div>`
-    + `<p>The supplier asks <strong>${esc(D.formatBp(x.askBp))}</strong> (${esc(D.formatPence(x.askPence))} a year); the contract caps movement at <strong>${esc(D.formatBp(x.capBp))}</strong> (${esc(D.formatPence(x.capPence))}). `
-    + (x.excessBp > 0 ? `The ask exceeds the cap by <strong>${esc(D.formatPoints(x.excessBp))}</strong>: <strong>${esc(D.formatPence(x.excessPence))} a year</strong> that needs exceptional evidence.` : "The ask is within the cap.")
-    + `</p><p class="small">On annual spend of ${esc(D.formatPence(x.spendPence))}. Integer arithmetic in pence and basis points.</p></div>`;
+  const recordedEvidence = c.evidence.find((e) => e.capabilityId === "price-increase-defender" && e.measure === "annual-exposure");
+  const recorded = recordedEvidence ? D.current(recordedEvidence) : null;
+  const button = `<button class="bw-action-primary" data-action="price-defender" data-case="${esc(c.id)}">${recorded ? "Refresh Defender" : "Run Price Increase Defender"}</button>`;
+  if (x.withheld) return `<div class="calc"><div class="eyebrow">Price Increase Defender</div><h2>Build the commercial position</h2><p>${esc(x.withheld)}</p><p class="small">The calculation is withheld rather than guessed. Enter the supplier ask, contract cap and annual spend to continue.</p><div class="toolbar">${button}</div></div>`;
+  return `<div class="calc"><div class="eyebrow">Price Increase Defender · deterministic</div><h2>Ask, contract and annual exposure</h2>`
+    + `<div class="metrics"><div class="metric"><b>${esc(D.formatBp(x.askBp))}</b><small>supplier ask</small></div><div class="metric"><b>${esc(D.formatPence(x.askPence))}</b><small>annual cost of ask</small></div><div class="metric"><b>${esc(D.formatBp(x.capBp))}</b><small>contract cap</small></div><div class="metric"><b>${esc(D.formatPence(x.excessPence))}</b><small>annual exposure above cap</small></div></div>`
+    + `<div class="callout">${x.excessBp > 0 ? `The ask is ${esc(D.formatPoints(x.excessBp))} above the cap. ${esc(D.formatPence(x.excessPence))} a year therefore needs exceptional evidence before a human accepts it.` : "The ask is within the recorded cap. Evidence is still needed to support the commercial change before a human decision."}</div>`
+    + `<p class="small">${recorded ? `Last frozen into Case evidence ${esc(D.formatStamp(recorded.recordedAt))}. Re-running only creates a new evidence version when an input changes.` : "This is a live calculation. Run Defender to freeze it into the evidence ledger and create the missing-evidence / negotiation work."}</p>`
+    + `<div class="toolbar">${button}</div></div>`;
 }
 
 function quotesPanel(s, c) {
