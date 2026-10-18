@@ -4,6 +4,20 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (m) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const today = () => new Date().toISOString().slice(0, 10);
+const SIMPLE_PREVIEW = new URL(location.href).searchParams.get("simple") === "1";
+const SIMPLE_PATHS = new Set(["/", "/flow", "/cases", "/suppliers", "/decisions", "/tools"]);
+
+function preserveSimpleLinks(root = document){
+  if(!SIMPLE_PREVIEW) return;
+  root.querySelectorAll("a[href]").forEach((a)=>{
+    const raw=a.getAttribute("href");
+    if(!raw || raw.startsWith("#") || raw.startsWith("mailto:") || raw.startsWith("tel:")) return;
+    const u=new URL(raw, location.origin);
+    if(u.origin !== location.origin || !SIMPLE_PATHS.has(u.pathname)) return;
+    u.searchParams.set("simple","1");
+    a.setAttribute("href", `${u.pathname}${u.search}${u.hash}`);
+  });
+}
 
 function loadTasks(){
   try { const v = JSON.parse(localStorage.getItem(TASK_KEY) || "[]"); return Array.isArray(v) ? v : []; }
@@ -87,6 +101,7 @@ function enhanceOther(app,page){
 function enhance(){
   const app=$("#app"); if(!app) return; const page=document.body.dataset.page || ({"/":"today","/flow":"flow","/cases":"cases","/suppliers":"suppliers","/decisions":"decisions"}[location.pathname]||"");
   if(page==="today") enhanceToday(app); else if(page==="flow") enhanceFlow(app); else if(page==="cases") enhanceCases(app); else enhanceOther(app,page);
+  preserveSimpleLinks(app);
 }
 function refreshTasks(){
   const a=$("[data-simple-slot='today-tasks']"); if(a) a.innerHTML=taskList(false);
@@ -113,4 +128,4 @@ $("#simple-help")?.addEventListener("click",()=>showGuide(true));
 const app=$("#app"); let pending=false;
 const observer=new MutationObserver(()=>{ if(pending)return; pending=true; queueMicrotask(()=>{pending=false; enhance();}); });
 if(app) observer.observe(app,{childList:true});
-enhance(); showGuide(false);
+enhance(); preserveSimpleLinks(document); showGuide(false);
