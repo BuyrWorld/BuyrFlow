@@ -303,3 +303,21 @@ body.dialog-open,body.nav-open{overflow:hidden}
   color: var(--bw-muted); font-size: 12.5px }
 .back-link:hover { color: var(--bw-text) }
 .back-link:focus-visible { outline: 2px solid var(--bw-accent); outline-offset: 2px; border-radius: 6px }
+
+/* Capabilities on a Case: a calculation offered, with what it still needs. */
+.capabilities .why-matters { margin-bottom: 14px }
+.capability { padding: 13px 14px; border: 1px solid var(--bw-border); border-radius: 10px;
+  background: var(--bw-surface-2); margin: 0 0 12px }
+.capability:last-child { margin-bottom: 0 }
+.capability-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin: 0 0 6px }
+.capability-head h3 { margin: 0; font-size: 14px }
+.capability > p { margin: 0 0 10px; color: var(--bw-muted); font-size: 12.5px; line-height: 1.55 }
+.capability .callout { margin: 0 0 12px }
+.capability .table-wrap { margin: 10px 0 }
+.capability .toolbar { margin: 12px 0 0 }
+.capability .calc { margin: 14px 0 0 }
+/* The dialog shows the finding before it is recorded, in the same frame the
+   Case uses for a derived figure — so what is previewed looks like what lands. */
+.workbench-info .calc, .workbench-info .callout { margin: 0 0 12px }
+.workbench-info ul { margin: 7px 0 0; padding-left: 18px; line-height: 1.7; font-size: 12.5px }

@@ -1,0 +1,16 @@
+# Line endings are part of the contract here, not a preference.
+#
+# tests/capabilities.test.mjs computes a SHA-256 of every file in
+# public/engine/ and compares it with the hash recorded when the engine was
+# vendored from buyrworld.com. With core.autocrlf=true and no rule here, a
+# fresh clone on Windows would be handed CRLF copies, every hash would
+# differ, and the drift test would fail on files nobody had touched.
+#
+# -text means git never converts these: the bytes in the repository are the
+# bytes on disk, on every machine.
+public/engine/** -text
+
+# The rest of the tree is LF in the repository and LF in the working copy.
+# These files are served to browsers as they are.
+* text=auto eol=lf
+*.png binary

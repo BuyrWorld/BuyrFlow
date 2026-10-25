@@ -1,0 +1,21 @@
+{
+  "what": "The BuyrWorld calculation engine, vendored byte-for-byte.",
+  "why": [
+    "Stage 5 says existing engines become capabilities and that watered-down copies must not be rebuilt.",
+    "BuyrFlow and buyrworld.com are separate repositories with no package manager between them, so consuming the engine means carrying these exact files.",
+    "They are never edited here. A fix belongs in buyrworld.com and arrives by re-vendoring."
+  ],
+  "source": {
+    "repository": "github.com/BuyrWorld/BuyrWorld",
+    "path": "src/calc/",
+    "commit": "10f6b661bf14304c59a504e2ce1b38a231e31012",
+    "vendoredAt": "2026-10-18"
+  },
+  "sha256": {
+    "cost-bridge.mjs": "677a0a749b673525bc5a081b0ebde97cf201f9e60a58f3699e3bbab97127234d",
+    "exact.mjs": "8e415da09122a22c73401da9aa27176cdea7722d7b33d65d7c915fdb0db80300",
+    "fx.mjs": "91d697899d22207af2bc6983af48fecb86592514a0f247d31ced62826919a0fc",
+    "index-series.mjs": "10366bee33dff8225a1249e29dd99dc26573bd24d4c1f1f75883fd250542c789"
+  },
+  "resync": "Copy src/calc/{exact,index-series,fx,cost-bridge}.mjs from the commit named above, then run node tools/engine-hashes.mjs to rewrite this file."
+}

@@ -15,11 +15,15 @@
 
 import http from "node:http";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "public");
-const VERSION = "0.8.0";
+/* One source of truth. The health endpoint, the footer and package.json
+   had drifted to three different versions by v0.9.1. */
+const VERSION = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "package.json"), "utf8")).version;
+const RELEASE = "B";
 
 export const HEADERS = Object.freeze({
   "content-security-policy": [
@@ -41,10 +45,24 @@ export const HEADERS = Object.freeze({
 });
 
 const PAGES = new Set(["/", "/cases", "/flow", "/suppliers", "/decisions", "/tools"]);
+const JS = "text/javascript; charset=utf-8";
+
+/* The vendored calculation engine, read from the record of what was carried
+   over rather than listed again here. Re-vendoring updates PROVENANCE.json,
+   so the allow-list cannot fall behind the files it is meant to describe.
+   Still an allow-list: nothing outside it is served, and a file that is not
+   in the provenance record is a file nobody recorded vendoring. */
+const ENGINE = Object.fromEntries(
+  Object.keys(JSON.parse(readFileSync(join(ROOT, "engine/PROVENANCE.json"), "utf8")).sha256)
+    .map((f) => [`/engine/${f}`, JS]),
+);
+
 const FILES = Object.freeze({
-  "/app.js": "text/javascript; charset=utf-8",
-  "/domain.js": "text/javascript; charset=utf-8",
-  "/views.js": "text/javascript; charset=utf-8",
+  "/app.js": JS,
+  "/domain.js": JS,
+  "/views.js": JS,
+  "/capabilities.js": JS,
+  ...ENGINE,
   "/style.css": "text/css; charset=utf-8",
   "/buyrworld-logo.png": "image/png",
 });
@@ -61,7 +79,7 @@ export function createServer() {
       const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname;
       if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "text/plain; charset=utf-8", "GET only", { allow: "GET, HEAD" });
       if (path === "/api/health") {
-        return send(res, 200, "application/json", JSON.stringify({ ok: true, product: "BuyrWorld Flagship Foundation", release: "A", version: VERSION }), { "cache-control": "no-store" });
+        return send(res, 200, "application/json", JSON.stringify({ ok: true, product: "BuyrWorld Flagship Foundation", release: RELEASE, version: VERSION }), { "cache-control": "no-store" });
       }
       if (PAGES.has(path)) return send(res, 200, "text/html; charset=utf-8", await readFile(join(ROOT, "index.html")));
       if (FILES[path]) return send(res, 200, FILES[path], await readFile(join(ROOT, path.slice(1))));
