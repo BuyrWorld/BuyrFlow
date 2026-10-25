@@ -32,8 +32,24 @@ function dueText(a, today) {
   return `due ${esc(D.formatDate(a.dueDate))}`;
 }
 
-function pageHead(eyebrow, title, lead) {
-  return `<div class="demo-strip"><strong>REVIEW DATA</strong> Synthetic standalone workspace — not live organisational or supplier performance.</div>`
+/**
+ * The strip that says which workspace this is.
+ *
+ * Only the demo gets one. A live workspace holding a buyer's real cases must
+ * never carry a banner calling them synthetic — and a demo must never lose
+ * it, which is why this is driven by the state's own mode rather than by
+ * anything the page remembers.
+ */
+export function workspaceStrip(s) {
+  if (s?.mode !== D.MODE.LIVE) {
+    return `<div class="demo-strip"><strong>REVIEW DATA</strong> Synthetic demonstration workspace — not live organisational or supplier performance. `
+      + `<button class="bw-action-text" data-action="workspace-live">Switch to my workspace</button></div>`;
+  }
+  return "";
+}
+
+function pageHead(s, eyebrow, title, lead) {
+  return workspaceStrip(s)
     + `<div class="page-head"><div><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1>${lead ? `<p class="lead">${esc(lead)}</p>` : ""}</div></div>`;
 }
 
@@ -131,6 +147,34 @@ function taskRow(s, t, today) {
  * case engine's figures are all still here, one disclosure down, because they
  * are the right content for a different question.
  */
+/**
+ * An empty live workspace, on the first visit.
+ *
+ * The hardest screen in the product: nothing has happened, so nothing can be
+ * shown, and a buyer who has never seen BuyrFlow has no way to tell what it
+ * would do for them. The answer is not a tour — it is the Demo, which is
+ * three real-shaped cases one click away and cannot damage anything.
+ *
+ * It appears only while the workspace is genuinely untouched. One task or
+ * one case and it is gone for good, without being dismissed.
+ */
+function firstRun(s) {
+  if (s.mode !== D.MODE.LIVE) return "";
+  if (s.cases.length || s.personalTasks.length || s.suppliers.length) return "";
+  return `<section class="bw-panel raised first-run"><div class="eyebrow">Your workspace</div>`
+    + `<h2>Empty, and that is correct</h2>`
+    + `<p class="lead">This is where your real work goes. Nothing is here yet because nothing has been added — `
+    + `there is no sample case to delete and no placeholder supplier to rename.</p>`
+    + `<div class="first-run-ways">`
+    + `<div><strong>Two ways in</strong><p class="small">Add a task for something you have to do. Describe a problem `
+    + `to open a case, which brings the evidence, decision and approval rules with it.</p></div>`
+    + `<div><strong>Not sure what this does?</strong><p class="small">The Demo has three worked cases — a shortage, a `
+    + `sourcing decision and a price increase — with their evidence, decisions and outcomes already in place. `
+    + `Nothing you do there touches anything here.</p>`
+    + `<button class="bw-action-secondary" data-action="workspace-demo">Open the Demo</button></div>`
+    + `</div></section>`;
+}
+
 export function renderToday(s, ctx) {
   const today = ctx.today;
   const m = D.workspaceMetrics(s, today);
@@ -161,6 +205,7 @@ export function renderToday(s, ctx) {
     + `</section>`
 
     + `<div class="hint-slot" data-hint="today"></div>`
+    + firstRun(s)
 
     + `<div class="daycounts" aria-label="My day">`
     + count(day.dueToday, "due today", "/flow")
@@ -202,7 +247,7 @@ export function renderToday(s, ctx) {
     + `</div>`
     + `<section class="bw-panel workspace-data"><div class="panel-head"><div><div class="eyebrow">Workspace data</div><h2>Kept in this browser only</h2></div></div>`
     + `<p class="small">Nothing leaves this device. Export a copy before clearing browser data or switching machines.</p>`
-    + `<div class="toolbar"><button class="bw-action-secondary" data-action="export">Export workspace (JSON)</button><button class="bw-action-secondary" data-action="import">Import workspace</button><button class="bw-action-text" data-action="reset">Reset to review data</button>${user ? `<button class="bw-action-text" data-action="set-user">Change name or role</button>` : ""}</div></section>`
+    + `<div class="toolbar"><button class="bw-action-secondary" data-action="export">Export workspace (JSON)</button><button class="bw-action-secondary" data-action="import">Import workspace</button><button class="bw-action-text" data-action="reset">${s.mode === D.MODE.LIVE ? "Clear my workspace" : "Reset the demo"}</button>${user ? `<button class="bw-action-text" data-action="set-user">Change name or role</button>` : ""}</div></section>`
     + `</details>`
 
     /* The problem router, below the day rather than instead of it. Still the
@@ -217,7 +262,7 @@ export function renderToday(s, ctx) {
     + `<div class="secondary-links"><button class="bw-action-text" data-action="paste-evidence">Add evidence to a case</button></div>`
     + `</section>`
 
-    + `<div class="demo-strip"><strong>REVIEW DATA</strong> Synthetic standalone workspace — not live organisational or supplier performance.</div>`;
+    + workspaceStrip(s);
 }
 
 /* ===================================================================== cases */
@@ -406,7 +451,7 @@ function decisionCard(s, d, { compact = false } = {}) {
 
 export function renderCases(s, ctx) {
   const today = ctx.today;
-  if (!s.cases.length) return pageHead("Procurement cases", "No cases yet", "Describe a problem on Today to open one.");
+  if (!s.cases.length) return pageHead(s, "Procurement cases", "No cases yet", "Describe a problem on Today to open one.");
   const id = ctx.params.get("id");
   const c = D.caseById(s, id) || s.cases[0];
   const risk = D.caseRisk(s, c, today);
@@ -434,7 +479,7 @@ export function renderCases(s, ctx) {
      is a deep link that failed — and a line explains why they are here. */
   const viaEvidence = String(ctx.hash || "").startsWith("#ev-");
 
-  return pageHead("Procurement cases", "Evidence → decision → execution → outcome", "")
+  return pageHead(s, "Procurement cases", "Evidence → decision → execution → outcome", "")
     /* Always, not only when deep-linked. A Case is somewhere you are sent —
        from Today, from My work, from a link in an email — and at phone width
        the sidebar is behind a menu button, so without this the way back is a
@@ -541,7 +586,7 @@ export function renderFlow(s, ctx) {
     `<section class="bw-panel"><div class="panel-head"><div class="eyebrow">${esc(title)}</div></div>`
     + `<div class="task-list">${items.length ? items.map((t) => taskRow(s, t, today)).join("") : `<div class="empty">${empty}</div>`}</div></section>`;
 
-  return pageHead("My work", "Everything on your plate", "Your own tasks and the case work assigned to you. Case work keeps its evidence and approval rules in the background.")
+  return pageHead(s, "My work", "Everything on your plate", "Your own tasks and the case work assigned to you. Case work keeps its evidence and approval rules in the background.")
     + `<div class="hint-slot" data-hint="flow"></div>`
     + `<div class="toolbar"><button class="bw-action-primary" data-action="add-task">+ Add task</button></div>`
     + section("Today", todayTasks, "Nothing due today.")
@@ -604,7 +649,7 @@ function flowBoard(s, ctx) {
 
 export function renderSuppliers(s, ctx) {
   const wanted = (ctx.params.get("name") || "").toLowerCase();
-  return pageHead("Supplier intelligence", "Every request belongs to a case", "Suppliers are linked to cases by id, so a renamed supplier keeps its history. Requests record what was asked, when it was sent and what came back.")
+  return pageHead(s, "Supplier intelligence", "Every request belongs to a case", "Suppliers are linked to cases by id, so a renamed supplier keeps its history. Requests record what was asked, when it was sent and what came back.")
     + `<div class="toolbar"><button class="bw-action-secondary" data-action="add-supplier">Add supplier</button></div>`
     + `<div class="supplier-grid">${s.suppliers.map((sp) => {
       const cases = s.cases.filter((c) => c.quotes.some((q) => q.supplierId === sp.id));
@@ -625,22 +670,23 @@ export function renderSuppliers(s, ctx) {
 
 export function renderDecisions(s) {
   const threshold = s.settings.secondApprovalAbovePence;
-  return pageHead("Decision memory", "Remember why, and what happened next", "A decision keeps the evidence its decider saw, word for word. It goes stale when material evidence changes, and only an authorising decision can be executed.")
+  return pageHead(s, "Decision memory", "Remember why, and what happened next", "A decision keeps the evidence its decider saw, word for word. It goes stale when material evidence changes, and only an authorising decision can be executed.")
     + `<section class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Authority</div><h2>Second approval above ${esc(D.formatPence(threshold))}</h2></div><button class="bw-action-secondary" data-action="threshold">Change</button></div><p class="small">A review-build default. Set it to your delegation of authority; a decision on a case worth more than this needs a second, different person to approve it before execution.</p></section>`
     + `<section class="bw-panel">${s.decisions.map((d) => decisionCard(s, d)).join("") || '<div class="empty">No decisions yet.</div>'}</section>`;
 }
 
 /* ===================================================================== tools */
 
-export function renderTools() {
-  return pageHead("Capabilities", "Exact engines feed cases — they do not become mini-app silos", "Release B reconnects the live BuyrWorld engines as case capabilities.")
+export function renderTools(s) {
+  return pageHead(s, "Capabilities", "Exact engines feed cases — they do not become mini-app silos", "Release B reconnects the live BuyrWorld engines as case capabilities.")
     + `<div class="grid"><section class="bw-panel span-6"><div class="eyebrow">Release B</div><h2>Commercial evidence capabilities</h2>`
-    + ["Price Increase Defender — supported against unsupported movement, contract ceiling and negotiating position.",
-      "Quote Comparator — like-for-like scope, landed cost, lead time and evidence lineage.",
-      "Should-Cost — material and process assumptions with an auditable range."].map((t) => `<div class="row"><span class="dot normal" aria-hidden="true"></span><div><p>${esc(t)}</p></div>${chip("planned", "quiet")}</div>`).join("")
+    + [["Price Increase Defender — decomposes the ask across its cost drivers and shows what the evidence warrants. On any claim case.", true],
+      ["Quote Comparator — like-for-like scope, landed cost, lead time and evidence lineage.", false],
+      ["Should-Cost — material and process assumptions with an auditable range.", false]]
+      .map(([t, built]) => `<div class="row"><span class="dot ${built ? "normal" : "quiet"}" aria-hidden="true"></span><div><p>${esc(t)}</p></div>${built ? chip("built", "ev-derived") : chip("planned", "quiet")}</div>`).join("")
     + `</section><section class="bw-panel span-6"><div class="eyebrow">In this build</div><h2>Two calculations, done exactly</h2><p class="lead">Shortage cases compare each supplier's arrival with the need date. Claim cases compare the ask with the contract cap in pence a year. Both withhold the figure when an input is missing rather than guessing.</p></section></div>`;
 }
 
-export function renderNotFound() {
-  return pageHead("Not found", "That page does not exist", "Use the navigation to get back to your work.");
+export function renderNotFound(s) {
+  return pageHead(s, "Not found", "That page does not exist", "Use the navigation to get back to your work.");
 }

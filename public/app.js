@@ -11,9 +11,33 @@ import * as D from "./domain.js";
 import * as V from "./views.js";
 import { capabilityById } from "./capabilities.js";
 
-const KEY = "buyrflow.workspace.v3";
+/**
+ * Two workspaces, side by side.
+ *
+ * The demo holds the synthetic review cases: somewhere to see what BuyrFlow
+ * does, and somewhere to break things without consequence. The live
+ * workspace starts empty and holds real work. They are separate keys, so
+ * nothing in one can reach the other — resetting the demo cannot touch real
+ * cases, and real cases never appear under a REVIEW DATA banner.
+ *
+ * v0.10.0 split a single key into these two. Whatever was in it was seeded
+ * review data by construction, so it becomes the demo; the old key is left
+ * where it is as the backup.
+ */
+const KEYS = Object.freeze({
+  [D.MODE.DEMO]: "buyrflow.workspace.demo.v3",
+  [D.MODE.LIVE]: "buyrflow.workspace.live.v3",
+});
+const MODE_KEY = "buyrflow.mode.v1";
+const SPLIT_KEY = "buyrflow.workspace.v3";          // the single workspace, before the split
 const LEGACY_KEY = "buyrworld_flagship_release_a_v1";
 
+export const WORKSPACE_LABEL = Object.freeze({
+  [D.MODE.DEMO]: "Demo",
+  [D.MODE.LIVE]: "My workspace",
+});
+
+let mode = D.MODE.DEMO;
 let state = null;
 let loadedRev = 0;
 let conflict = false;
@@ -28,21 +52,48 @@ function readKey(k) {
   try { return JSON.parse(localStorage.getItem(k)); } catch { return null; }
 }
 
-function load() {
-  const current = readKey(KEY);
-  if (current && current.schema === D.SCHEMA) return current;
-  const legacy = readKey(LEGACY_KEY);
-  const { state: s, from } = D.migrate(legacy);
-  // The v0.7 data stays under its own key, untouched, as the backup.
-  writeRaw(s);
-  if (from === 2) queueToast("Your v0.7 workspace was carried over. Its dates had no year, so they are shown as originally written.");
-  return s;
+/** The workspace the person was last in, or the demo on a first visit. */
+function readMode() {
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    return D.isMode(m) ? m : D.MODE.DEMO;
+  } catch {
+    return D.MODE.DEMO;
+  }
 }
 
-function writeRaw(s) {
+function writeMode(m) {
+  try { localStorage.setItem(MODE_KEY, m); } catch { /* private window: this visit only */ }
+}
+
+/**
+ * Load one workspace. A stored file is stamped with the mode of the slot it
+ * is in, because the slot is the truth: a file can only be in one of them,
+ * and a file written before modes existed has no opinion.
+ */
+function load(m) {
+  const stored = readKey(KEYS[m]);
+  if (stored && stored.schema === D.SCHEMA) return { ...stored, mode: m };
+
+  if (m === D.MODE.DEMO) {
+    /* Carry the pre-split workspace in, then the v0.7 data, then a fresh
+       seed. Each step leaves the key it read where it was. */
+    const split = readKey(SPLIT_KEY);
+    if (split && split.schema === D.SCHEMA) {
+      queueToast("Your workspace is now the Demo. Switch to My workspace for real work — it starts empty.");
+      return { ...split, mode: m };
+    }
+    const { state: s, from } = D.migrate(readKey(LEGACY_KEY));
+    if (from === 2) queueToast("Your v0.7 workspace was carried over. Its dates had no year, so they are shown as originally written.");
+    return { ...s, mode: m };
+  }
+  return D.newWorkspace(m);
+}
+
+function writeRaw(s, m = mode) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(s));
-    loadedRev = s.rev;
+    localStorage.setItem(KEYS[m], JSON.stringify(s));
+    if (m === mode) loadedRev = s.rev;
     return true;
   } catch {
     showBanner("This browser would not save the workspace (storage may be full or blocked). Export a copy now.");
@@ -50,9 +101,9 @@ function writeRaw(s) {
   }
 }
 
-/** Save, unless another tab has saved since this one loaded. */
+/** Save, unless another tab has saved this same workspace since we loaded it. */
 function persist(s) {
-  const stored = readKey(KEY);
+  const stored = readKey(KEYS[mode]);
   if (stored && stored.rev !== loadedRev) {
     markConflict();
     return false;
@@ -62,10 +113,36 @@ function persist(s) {
 
 function markConflict() {
   conflict = true;
-  showBanner("This workspace was changed in another tab. Reload before changing anything here, or one tab's work would overwrite the other's.", true);
+  showBanner(`The ${WORKSPACE_LABEL[mode]} workspace was changed in another tab. Reload before changing anything here, or one tab's work would overwrite the other's.`, true);
 }
 
-window.addEventListener("storage", (e) => { if (e.key === KEY) markConflict(); });
+/* Only a change to the workspace this tab is showing is a conflict. The
+   other tab editing the other workspace is just two people working. */
+window.addEventListener("storage", (e) => { if (e.key === KEYS[mode]) markConflict(); });
+
+/**
+ * Switch workspaces.
+ *
+ * Nothing is copied and nothing is merged: the current one is already
+ * saved on every command, and the other is read from its own key. A
+ * conflict in the workspace being left does not follow us into the new one.
+ */
+function switchWorkspace(next) {
+  if (!D.isMode(next) || next === mode) return;
+  mode = next;
+  writeMode(mode);
+  state = load(mode);
+  loadedRev = state.rev;
+  conflict = false;
+  const banner = $("#banner");
+  if (banner) banner.hidden = true;
+  ui.pendingIntake = null;
+  ui.intakeMessage = null;
+  writeRaw(state);
+  render();
+  flushToasts();
+  toast(`Now in ${WORKSPACE_LABEL[mode]}.`);
+}
 
 /* ================================================================ running */
 
@@ -114,6 +191,7 @@ function toast(message, alert = false) {
 
 const queued = [];
 const queueToast = (m) => queued.push(m);
+const flushToasts = () => { for (const m of queued.splice(0)) toast(m); };
 
 function showBanner(message, withReload = false) {
   const b = $("#banner");
@@ -875,12 +953,12 @@ function exportWorkspace() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `buyrflow-workspace-${today()}.json`;
+  a.download = `buyrflow-${mode}-${today()}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  toast("Workspace exported.");
+  toast(`${WORKSPACE_LABEL[mode]} exported.`);
 }
 
 function importWorkspace() {
@@ -897,30 +975,67 @@ function importWorkspace() {
     const next = obj.schema === D.SCHEMA ? obj : D.migrate(obj).state;
     openWorkbench({
       title: "Replace this workspace?",
-      lede: `The file holds ${next.cases.length} case${next.cases.length === 1 ? "" : "s"} and ${next.decisions.length} decision${next.decisions.length === 1 ? "" : "s"}. Everything in this browser is replaced. Export first if you need what is here.`,
+      lede: `The file holds ${next.cases.length} case${next.cases.length === 1 ? "" : "s"} and ${next.decisions.length} decision${next.decisions.length === 1 ? "" : "s"}. `
+        + `It replaces <strong>${esc(WORKSPACE_LABEL[mode])}</strong>, and nothing in the other workspace is touched. Export first if you need what is here.`
+        /* A demo file landing in the live workspace is the mistake worth
+           naming: review cases would stop being labelled as review cases. */
+        + (D.isMode(next.mode) && next.mode !== mode
+          ? ` <strong>This file was exported from ${esc(WORKSPACE_LABEL[next.mode])}.</strong> Importing it here makes it ${esc(WORKSPACE_LABEL[mode])}`
+            + (mode === D.MODE.LIVE ? ", so the synthetic cases in it will no longer be labelled as review data." : ".")
+          : ""),
       submit: "Replace",
       fields: [],
-      onSubmit: () => { if (!writeRaw(next)) return { ok: false, refusal: "Not saved." }; state = next; render(); toast("Workspace imported."); return { ok: true }; },
+      onSubmit: () => {
+        const landed = { ...next, mode };
+        if (!writeRaw(landed)) return { ok: false, refusal: "Not saved." };
+        state = landed;
+        loadedRev = landed.rev;
+        render();
+        toast(`Imported into ${WORKSPACE_LABEL[mode]}.`);
+        return { ok: true };
+      },
     });
   });
   input.click();
 }
 
+/**
+ * Empty the live workspace, or put the demo back how it started.
+ *
+ * Two different acts behind one control, so the wording is not shared: one
+ * destroys real work and the other restores a fixture. Only the workspace
+ * you are in is touched.
+ */
 function resetWorkspace() {
+  const live = mode === D.MODE.LIVE;
+  const counts = `${state.cases.length} case${state.cases.length === 1 ? "" : "s"}, `
+    + `${state.decisions.length} decision${state.decisions.length === 1 ? "" : "s"} and `
+    + `${state.personalTasks.length} task${state.personalTasks.length === 1 ? "" : "s"}`;
   openWorkbench({
-    title: "Reset to the review data?",
-    lede: "This replaces every case, action and decision in this browser with the three synthetic review cases. Export first if you need what is here.",
-    submit: "Reset",
-    fields: [],
-    onSubmit: () => {
-      const fresh = D.seedState();
+    title: live ? "Clear my workspace?" : "Reset the demo?",
+    lede: live
+      ? `This permanently deletes ${counts} — your real work, not the demo. Nothing in the Demo workspace changes. Export first if you need any of it.`
+      : `This puts the three synthetic review cases back and discards anything you changed in the demo. Your own workspace is not touched.`,
+    submit: live ? "Delete everything here" : "Reset the demo",
+    fields: live
+      /* A real workspace is not cleared by one press. Typing the word is the
+         smallest confirmation that cannot happen by accident. */
+      ? [{ name: "confirm", label: 'Type DELETE to confirm', required: true, placeholder: "DELETE" }]
+      : [],
+    onSubmit: (d) => {
+      if (live && d.confirm.trim().toUpperCase() !== "DELETE") {
+        return { ok: false, refusal: "Type DELETE to confirm, or cancel." };
+      }
+      const fresh = D.newWorkspace(mode);
       fresh.settings.user = user();
+      fresh.settings.secondApprovalAbovePence = state.settings.secondApprovalAbovePence;
       fresh.rev = (state.rev || 0) + 1;
       if (!writeRaw(fresh)) return { ok: false, refusal: "Not saved." };
       state = fresh;
       ui.pendingIntake = null;
+      ui.intakeMessage = null;
       render();
-      toast("Review data restored.");
+      toast(live ? "Workspace cleared." : "Demo reset.");
       return { ok: true };
     },
   });
@@ -970,7 +1085,13 @@ function render() {
   const views = { today: V.renderToday, cases: V.renderCases, flow: V.renderFlow, suppliers: V.renderSuppliers, decisions: V.renderDecisions, tools: V.renderTools, notfound: V.renderNotFound };
   const solveText = $("#solve-input")?.value || "";
   document.body.dataset.page = page;
-  document.title = `${TITLES[page]} · BuyrWorld`;
+  /* The whole page is a different workspace, so say so in the title too —
+     two tabs, one per workspace, is the obvious way to use this. */
+  document.title = `${TITLES[page]} · ${WORKSPACE_LABEL[mode]} · BuyrWorld`;
+  document.body.dataset.workspace = mode;
+  document.querySelectorAll("[data-workspace]").forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.workspace === mode));
+  });
   document.querySelectorAll("[data-nav]").forEach((a) => {
     const on = a.dataset.nav === page;
     a.classList.toggle("active", on);
@@ -1045,6 +1166,11 @@ function showGuide(force = false) {
     + `<li><strong>Describe a problem</strong> when a supplier, shortage, quote or commercial issue needs structuring.</li>`
     + `<li><strong>Open a Case only when needed</strong> — for evidence, approvals, decisions and history.</li>`
     + `</ol>`
+    /* Where you are is the thing a person misreads first: three worked cases
+       look like somebody else's data until you know they are the demo. */
+    + `<p class="guide-note">Top right switches between the <strong>Demo</strong> — three worked cases to click through — `
+    + `and <strong>My workspace</strong>, which starts empty and holds your real work. They are kept separately; `
+    + `nothing you do in one reaches the other.</p>`
     + `<div class="toolbar"><button class="bw-action-primary" data-action="guide-work">Show my work</button>`
     + `<button class="bw-action-secondary" data-action="guide-done">Got it</button></div>`
     + `</section>`;
@@ -1103,6 +1229,8 @@ const ACTIONS = {
   "guide-done": () => closeGuide(),
   "guide-work": () => { closeGuide(); location.href = "/flow"; },
   "focus-problem": () => { const i = $("#solve-input"); if (i) { i.scrollIntoView({ block: "center" }); i.focus(); } },
+  "workspace-demo": () => switchWorkspace(D.MODE.DEMO),
+  "workspace-live": () => switchWorkspace(D.MODE.LIVE),
   "case-value": (b) => caseValueForm(b.dataset.case),
   "claim-baseline": (b) => claimBaselineForm(b.dataset.case),
   "claim-driver": (b) => claimDriverForm(b.dataset.case),
@@ -1156,10 +1284,15 @@ document.querySelectorAll("#sidebar a").forEach((a) => a.addEventListener("click
 
 /* ==================================================================== boot */
 
-state = load();
+mode = readMode();
+state = load(mode);
 loadedRev = state.rev;
+/* A first visit has nothing stored for either workspace. Writing the demo
+   now means the slot exists before anything is changed, so the first
+   command is a save rather than a create. */
+writeRaw(state);
 render();
 afterFirstRender();
 showGuide();
-for (const m of queued.splice(0)) toast(m);
+flushToasts();
 if (!state.settings.user && currentPage() !== "today") toast("Set your name and role on Today before changing anything.");

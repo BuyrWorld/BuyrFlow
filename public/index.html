@@ -29,13 +29,19 @@
         </div>
       </details>
     </nav>
-    <div class="side-foot">Flagship foundation · Release B v0.10.0<br>Evidence before automation.</div>
+    <div class="side-foot">Flagship foundation · Release B v0.11.0<br>Evidence before automation.</div>
   </aside>
   <section class="workspace">
     <header class="topbar">
       <button id="menu" class="bw-action-secondary mobile-menu" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
       <div class="search"><label class="sr-only" for="global-search">Search cases, suppliers and actions</label><input id="global-search" placeholder="Search cases, suppliers or actions…" autocomplete="off"></div>
-      <div class="top-state"><span class="live-dot" aria-hidden="true"></span> synthetic review workspace</div>
+      <!-- Two workspaces, and which one you are in is never a guess. The
+           demo holds the review cases; My workspace holds real work and
+           starts empty. app.js sets aria-pressed and the label on render. -->
+      <div class="workspace-switch" role="group" aria-label="Workspace">
+        <button type="button" data-action="workspace-demo" data-workspace="demo" aria-pressed="true">Demo</button>
+        <button type="button" data-action="workspace-live" data-workspace="live" aria-pressed="false">My workspace</button>
+      </div>
       <!-- Always available, so the walkthrough is never a one-time thing
            somebody dismissed before they understood it. -->
       <button id="help" class="help-button" data-action="open-guide" aria-label="How BuyrFlow works">?</button>

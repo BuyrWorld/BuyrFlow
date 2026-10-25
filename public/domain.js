@@ -27,6 +27,21 @@
  */
 
 export const SCHEMA = 3;
+
+/**
+ * A workspace is one of two things, and it says which.
+ *
+ * DEMO holds the synthetic review cases: somewhere to see what the product
+ * does, and somewhere to break things without consequence. LIVE starts empty
+ * and holds real work.
+ *
+ * The mode is in the state rather than beside it, so an exported file
+ * declares what it is and cannot be imported into the other slot by
+ * accident. A file written before this existed has no mode; it is read as
+ * whichever slot it is loaded into, because that is the only honest guess.
+ */
+export const MODE = Object.freeze({ DEMO: "demo", LIVE: "live" });
+export const isMode = (m) => m === MODE.DEMO || m === MODE.LIVE;
 export const VERSION = "0.9.1";
 
 /* ================================================================ identity */
@@ -725,6 +740,7 @@ export function seedState() {
     ({ id, name, category, otdPct, qualityPct, risk, relationship });
   return {
     schema: SCHEMA,
+    mode: MODE.DEMO,
     rev: 0,
     seq: { case: 3, action: 104, request: 3, decision: 1, outcome: 0, task: 0 },
     settings: {
@@ -820,6 +836,43 @@ export function seedState() {
     ],
   };
 }
+
+/**
+ * An empty workspace, for real work.
+ *
+ * Same shape as the seed in every respect — the screens, the commands and
+ * the gates cannot tell the two apart, which is the point: nothing is
+ * demonstrated in the demo that does not also happen here.
+ *
+ * It is empty, not nearly empty. No sample supplier, no starter case, no
+ * placeholder to delete. The one thing carried across is the second-approval
+ * threshold, because a default of zero would mean every decision needed two
+ * names and a default of infinity would mean none did; the figure is a
+ * policy choice and the screen says so.
+ */
+export function emptyState() {
+  return {
+    schema: SCHEMA,
+    mode: MODE.LIVE,
+    rev: 0,
+    seq: { case: 0, action: 0, request: 0, decision: 0, outcome: 0, task: 0 },
+    settings: {
+      user: null,
+      secondApprovalAbovePence: 25_000_000,
+    },
+    people: [],
+    personalTasks: [],
+    suppliers: [],
+    cases: [],
+    requests: [],
+    actions: [],
+    decisions: [],
+    events: [],
+  };
+}
+
+/** A workspace for one mode: the review cases, or nothing. */
+export const newWorkspace = (mode) => (mode === MODE.LIVE ? emptyState() : seedState());
 
 /* ================================================================ commands */
 
