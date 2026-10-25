@@ -1350,6 +1350,104 @@ const HANDLERS = {
               : `At or below ${formatPence(threshold)}, so one decider can authorise it.`));
   },
 
+  /* ------------------------------------------- Release B, Stage 5 seam
+
+     A capability consumes the case and returns structured evidence. These
+     two commands are the only way its output reaches a Case, and they are
+     deliberately narrow: one records the inputs a capability needs, the
+     other writes what it produced as DERIVED evidence.
+
+     DERIVED is produced only by code, which is why `runCapability` takes a
+     result rather than text. Nothing here decides anything: the evidence it
+     writes is evidence like any other, and every gate downstream is
+     unchanged. */
+
+  /** A cost driver on a claim: its share of the price, and how far it moved. */
+  addClaimDriver(s, cmd, ctx) {
+    const c = caseById(s, cmd.caseId);
+    need(c, "case", "That case does not exist.");
+    need(c.type === "claim", "type", "Cost drivers belong to a supplier price or terms change.");
+    const label = text(cmd.label);
+    need(label, "label", "Name the driver — the material, the energy, the labour.");
+    need(Number.isInteger(cmd.weightBp) && cmd.weightBp > 0 && cmd.weightBp <= 10_000,
+      "weight", "A driver's share of the price is a percentage between 0 and 100.");
+    need(Number.isInteger(cmd.movementBp), "movement",
+      "Say how far this driver moved, as a percentage. A fall is negative.");
+
+    if (!c.claim) c.claim = { askBp: null, capBp: null, annualSpendPence: null };
+    if (!Array.isArray(c.claim.drivers)) c.claim.drivers = [];
+    const total = c.claim.drivers.reduce((n, d) => n + d.weightBp, 0) + cmd.weightBp;
+    need(total <= 10_000, "weight",
+      `The drivers would add up to more than the whole price (${formatBp(total)}).`);
+
+    const d = {
+      id: ctx.id(), label, weightBp: cmd.weightBp, movementBp: cmd.movementBp,
+      source: text(cmd.source) || null, recordedBy: ctx.actor, recordedAt: ctx.now,
+    };
+    c.claim.drivers.push(d);
+    ctx.emit(c.id, "Cost driver recorded",
+      `${label}: ${formatBp(cmd.weightBp)} of the price, moved ${formatBp(cmd.movementBp)}.`);
+    return { driverId: d.id };
+  },
+
+  /** The baseline a decomposition needs: what one costs, and how many a year. */
+  setClaimBaseline(s, cmd, ctx) {
+    const c = caseById(s, cmd.caseId);
+    need(c, "case", "That case does not exist.");
+    need(c.type === "claim", "type", "A claim baseline belongs to a supplier price or terms change.");
+    need(Number.isInteger(cmd.unitPricePence) && cmd.unitPricePence > 0, "price",
+      "The current unit price has to be an amount in pounds.");
+    need(Number.isInteger(cmd.annualVolume) && cmd.annualVolume > 0, "volume",
+      "Annual volume has to be a whole number of units.");
+    if (!c.claim) c.claim = { askBp: null, capBp: null, annualSpendPence: null };
+    c.claim.unitPricePence = cmd.unitPricePence;
+    c.claim.annualVolume = cmd.annualVolume;
+    ctx.emit(c.id, "Claim baseline recorded",
+      `${formatPence(cmd.unitPricePence)} a unit, ${cmd.annualVolume} a year.`);
+  },
+
+  /**
+   * Write what a capability produced, as DERIVED evidence.
+   *
+   * The result is handed in rather than computed here: the capability owns
+   * the engine, this owns the record. A capability that returned nothing
+   * usable writes nothing — an empty result is not evidence of anything.
+   */
+  runCapability(s, cmd, ctx) {
+    const c = caseById(s, cmd.caseId);
+    need(c, "case", "That case does not exist.");
+    const r = cmd.result;
+    need(r && typeof r === "object", "result", "A capability has to return something to record.");
+    need(r.ok, "withheld", r?.withheld || "That capability could not produce a result.");
+    need(r.evidence && text(r.evidence.title) && text(r.evidence.text), "evidence",
+      "A capability's result needs a title and what it found.");
+
+    const title = text(r.evidence.title);
+    const existing = c.evidence.find((e) => e.title === title && e.capabilityId === cmd.capabilityId);
+    const version = {
+      v: existing ? current(existing).v + 1 : 1,
+      state: STATE.DERIVED,
+      text: text(r.evidence.text),
+      source: { document: null, from: `${text(cmd.capabilityLabel) || cmd.capabilityId} (calculated)`, date: ctx.today },
+      basis: text(r.evidence.basis) || null,
+      recordedAt: ctx.now, recordedBy: ctx.actor, assessment: null,
+    };
+
+    if (existing) {
+      /* Versioned, never overwritten — the same rule as every other piece of
+         evidence. A re-run after the drivers change is a new version. */
+      existing.versions.push(version);
+    } else {
+      c.evidence.push({
+        id: ctx.id(), title, material: true, question: false,
+        capabilityId: cmd.capabilityId, versions: [version],
+      });
+    }
+    ctx.emit(c.id, "Capability run",
+      `${text(cmd.capabilityLabel) || cmd.capabilityId}: ${version.text}`);
+    return { version: version.v };
+  },
+
   recordDecision(s, cmd, ctx) {
     const c = caseById(s, cmd.caseId);
     need(c, "case", "That case does not exist.");

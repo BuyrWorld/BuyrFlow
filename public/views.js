@@ -8,6 +8,7 @@
  */
 
 import * as D from "./domain.js";
+import { capabilitiesFor } from "./capabilities.js";
 
 export function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
@@ -280,6 +281,91 @@ function claimPanel(c) {
     + `</p><p class="small">On annual spend of ${esc(D.formatPence(x.spendPence))}. Integer arithmetic in pence and basis points.</p></div>`;
 }
 
+/**
+ * Capabilities on this case.
+ *
+ * A capability is a calculation this case can be put through. It needs
+ * inputs, it withholds when they are missing, and what it produces is
+ * evidence — not a decision and not an instruction. The panel is written to
+ * say all three, because a buyer who thinks a green figure settles the
+ * argument has been misled by the screen rather than by the engine.
+ */
+function capabilityPanel(s, c) {
+  const caps = capabilitiesFor(c);
+  if (!caps.length) return "";
+  return `<div class="bw-panel capabilities"><div class="panel-head"><div><div class="eyebrow">Capabilities</div>`
+    + `<h2>Calculations this case can be put through</h2></div></div>`
+    + `<p class="small why-matters">A capability produces evidence, never a decision. What it finds is recorded as derived, `
+    + `goes in the evidence ledger like anything else, and still has to be judged by a person.</p>`
+    + caps.map((cap) => capabilityCard(s, c, cap)).join("")
+    + `</div>`;
+}
+
+function capabilityCard(s, c, cap) {
+  const missing = cap.missing(c);
+  const drivers = c.claim?.drivers || [];
+  const recorded = c.evidence.find((e) => e.capabilityId === cap.id);
+  const v = recorded ? D.current(recorded) : null;
+
+  return `<div class="capability" id="cap-${esc(cap.id)}">`
+    + `<div class="capability-head"><h3>${esc(cap.label)}</h3>${v ? chip(`run ${v.v === 1 ? "once" : `${v.v} times`}`, "ev-derived") : ""}</div>`
+    + `<p>${esc(cap.says)}</p>`
+
+    /* What it needs, and the way to supply each part. Never a disabled button
+       with no explanation beside it. */
+    + (missing.length
+      ? `<div class="callout"><strong>Not enough recorded yet.</strong> Needs ${esc(missing.join(", "))}.</div>`
+      : "")
+
+    + claimBaselineLine(c)
+    + driversTable(c, drivers)
+
+    + `<div class="toolbar">`
+    + `<button class="bw-action-secondary" data-action="claim-baseline" data-case="${esc(c.id)}">`
+    + (Number.isInteger(c.claim?.unitPricePence) ? "Change the baseline" : "Record the baseline") + `</button>`
+    + `<button class="bw-action-secondary" data-action="claim-driver" data-case="${esc(c.id)}">Add a cost driver</button>`
+    + (missing.length
+      ? ""
+      : `<button class="bw-action-primary" data-action="run-capability" data-case="${esc(c.id)}" data-cap="${esc(cap.id)}">`
+        + (recorded ? "Run it again" : "Run it") + `</button>`)
+    + `</div>`
+
+    /* What it said last time, with its version, so re-running after the
+       drivers change is visibly a new answer rather than a correction. */
+    + (v
+      ? `<div class="calc"><div class="eyebrow">What it found — derived, version ${v.v}</div>`
+        + `<p>${esc(v.text)}</p>`
+        + (v.basis ? `<p class="small">${esc(v.basis)}</p>` : "")
+        + `<p class="small">Recorded ${esc(D.formatStamp(v.recordedAt))} by ${esc(v.recordedBy.name)} (${esc(v.recordedBy.role)}). `
+        + `<a class="bw-action-text" href="#ev-${encodeURIComponent(recorded.id)}">See it in the evidence ledger</a></p></div>`
+      : "")
+    + `</div>`;
+}
+
+function claimBaselineLine(c) {
+  const k = c.claim || {};
+  if (!Number.isInteger(k.unitPricePence) || !Number.isInteger(k.annualVolume)) return "";
+  return `<p class="small">Baseline: <strong>${esc(D.formatPence(k.unitPricePence))}</strong> a unit, `
+    + `<strong>${k.annualVolume}</strong> a year.</p>`;
+}
+
+function driversTable(c, drivers) {
+  if (!drivers.length) return "";
+  const covered = drivers.reduce((n, d) => n + d.weightBp, 0);
+  return `<div class="table-wrap"><table><caption class="sr-only">Cost drivers recorded on ${esc(c.ref)}</caption>`
+    + `<thead><tr><th scope="col">Driver</th><th scope="col">Share of the price</th><th scope="col">Movement</th><th scope="col">Source</th></tr></thead><tbody>`
+    + drivers.map((d) => `<tr><th scope="row">${esc(d.label)}</th><td>${esc(D.formatBp(d.weightBp))}</td>`
+      + `<td>${esc(D.formatBp(d.movementBp))}</td><td>${d.source ? esc(d.source) : "not recorded"}</td></tr>`).join("")
+    + `</tbody></table></div>`
+    /* The share nobody has explained is the honest part of this table. The
+       engine treats it as unchanged, which is an assumption, so it is said
+       here too rather than only inside a result. */
+    + (covered < 10_000
+      ? `<p class="small">These cover ${esc(D.formatBp(covered))} of the price. The remaining `
+        + `${esc(D.formatBp(10_000 - covered))} is unexplained and is treated as unchanged.</p>`
+      : `<p class="small">These cover the whole price.</p>`);
+}
+
 function quotesPanel(s, c) {
   const rows = D.quoteComparison(s, c);
   return `<div class="bw-panel"><div class="panel-head"><div><div class="eyebrow">Supplier positions</div><h2>Compared on what can be compared</h2></div><button class="bw-action-secondary" data-action="link-supplier" data-case="${esc(c.id)}">Link supplier</button></div>`
@@ -385,6 +471,7 @@ export function renderCases(s, ctx) {
     + (c.type === "shortage" ? timingPanel(s, c, today) : "")
     + (c.type === "claim" ? claimPanel(c) : "")
     + `</div>`
+    + capabilityPanel(s, c)
     + quotesPanel(s, c)
 
     /* Everything that makes the case defensible rather than actionable. It is

@@ -9,6 +9,7 @@
 
 import * as D from "./domain.js";
 import * as V from "./views.js";
+import { capabilityById } from "./capabilities.js";
 
 const KEY = "buyrflow.workspace.v3";
 const LEGACY_KEY = "buyrworld_flagship_release_a_v1";
@@ -568,6 +569,130 @@ function caseValueForm(caseId) {
   });
 }
 
+/* ============================================================ capabilities */
+
+/**
+ * The baseline a decomposition rests on: what one unit costs today and how
+ * many are bought a year. Two numbers, asked for together, because neither
+ * is useful without the other.
+ */
+function claimBaselineForm(caseId) {
+  const c = D.caseById(state, caseId);
+  if (!c) return;
+  const k = c.claim || {};
+  openWorkbench({
+    title: `Baseline · ${c.ref}`,
+    lede: `The price the increase would be applied to, and the volume it would be applied across. `
+      + `Nothing is estimated from these: they are the figures the decomposition is measured against.`,
+    submit: Number.isInteger(k.unitPricePence) ? "Change baseline" : "Record baseline",
+    fields: [
+      { name: "price", label: "Current unit price (£)", required: true, inputmode: "decimal",
+        value: Number.isInteger(k.unitPricePence) ? D.formatPence(k.unitPricePence).replace(/^£/, "") : "",
+        placeholder: "1,000.00" },
+      { name: "volume", label: "Annual volume (units)", required: true, inputmode: "numeric",
+        value: Number.isInteger(k.annualVolume) ? String(k.annualVolume) : "", placeholder: "5000" },
+    ],
+    onSubmit: (d) => {
+      const pence = D.parseMoneyToPence(d.price);
+      if (pence === null || pence <= 0) return { ok: false, refusal: "Enter a unit price in pounds, like 1,000.00." };
+      const volume = /^\d+$/.test(d.volume.replace(/,/g, "")) ? Number(d.volume.replace(/,/g, "")) : null;
+      if (!volume) return { ok: false, refusal: "Enter a whole number of units a year, like 5000." };
+      const r = run({ type: "setClaimBaseline", caseId: c.id, unitPricePence: pence, annualVolume: volume });
+      if (r.ok) { render(); toast("Baseline recorded."); }
+      return r;
+    },
+  });
+}
+
+/**
+ * One cost driver: a share of the price, and how far that input moved.
+ *
+ * The share is the part buyers get wrong, so the form says what is still
+ * unaccounted for rather than waiting for the engine to mention it.
+ */
+function claimDriverForm(caseId) {
+  const c = D.caseById(state, caseId);
+  if (!c) return;
+  const used = (c.claim?.drivers || []).reduce((n, d) => n + d.weightBp, 0);
+  openWorkbench({
+    title: `Add a cost driver · ${c.ref}`,
+    lede: `What share of the current price this input is, and how far it has moved. `
+      + (used
+        ? `Drivers so far cover ${esc(D.formatBp(used))}, leaving ${esc(D.formatBp(10_000 - used))} unaccounted for.`
+        : `Nothing is recorded yet, so the whole price is unaccounted for.`),
+    fields: [
+      { name: "label", label: "Driver", required: true, placeholder: "Nickel, energy, labour" },
+      { name: "weight", label: "Share of the unit price (%)", required: true, inputmode: "decimal", placeholder: "50",
+        help: "How much of what you pay today is this input." },
+      { name: "movement", label: "How far it moved (%)", required: true, inputmode: "decimal", placeholder: "10",
+        help: "A fall is negative, and lowers what the increase can be justified by." },
+      { name: "source", label: "Source", placeholder: "LME cash settlement, Oct 2026",
+        help: "Where the movement figure came from. Recorded with the driver, so the finding can be argued from." },
+    ],
+    onSubmit: (d) => {
+      const weightBp = D.parsePercentToBp(d.weight);
+      if (weightBp === null) return { ok: false, refusal: "Enter the share as a percentage, like 50." };
+      const movementBp = D.parsePercentToBp(d.movement);
+      if (movementBp === null) return { ok: false, refusal: "Enter the movement as a percentage, like 10, or -2 for a fall." };
+      const r = run({ type: "addClaimDriver", caseId: c.id, label: d.label, weightBp, movementBp, source: d.source });
+      if (r.ok) { render(); toast("Cost driver recorded."); }
+      return r;
+    },
+  });
+}
+
+/**
+ * Run a capability and record what it found.
+ *
+ * Two steps on purpose. The result is shown first, with what it rests on and
+ * what it leaves open, and recording it is a separate press — because what
+ * goes into the ledger is evidence somebody chose to put there.
+ */
+function runCapabilityForm(caseId, capabilityId) {
+  const c = D.caseById(state, caseId);
+  const cap = capabilityById(capabilityId);
+  if (!c || !cap) return;
+  const result = cap.run(c);
+
+  if (!result.ok) {
+    openWorkbench({
+      title: `${cap.label} · ${c.ref}`,
+      lede: `It did not produce a figure, and nothing has been recorded.`,
+      submit: "Close",
+      fields: [{ type: "info", html: `<p>${esc(result.withheld)}</p>`
+        + `<p class="small">A missing input is not an input of zero. Record what is missing and run it again.</p>` }],
+      onSubmit: () => ({ ok: true }),
+    });
+    return;
+  }
+
+  const assumptions = (result.assumptions || []).filter((a) => a.text);
+  openWorkbench({
+    title: `${cap.label} · ${c.ref}`,
+    lede: `Calculated from what is recorded on this case. Recording it puts the finding in the evidence ledger as `
+      + `derived. It does not decide anything, and every gate on this case is unchanged.`,
+    submit: "Record this finding",
+    fields: [
+      { type: "info", html: `<div class="calc"><div class="eyebrow">What it found</div>`
+        + `<p>${esc(result.evidence.text)}</p><p class="small">${esc(result.evidence.basis)}</p></div>` },
+      ...(assumptions.length
+        ? [{ type: "info", html: `<div class="callout"><strong>What it had to assume</strong><ul>`
+            + assumptions.map((a) => `<li>${esc(a.text)}</li>`).join("") + `</ul></div>` }]
+        : []),
+      ...(result.work.length
+        ? [{ type: "info", html: `<div class="callout"><strong>What it suggests next</strong><ul>`
+            + result.work.map((wk) => `<li>${esc(wk.title)} — ${esc(wk.why)}</li>`).join("") + `</ul>`
+            + `<p class="small">Suggested only. Nothing is created until you add it as work yourself.</p></div>` }]
+        : []),
+    ],
+    onSubmit: () => {
+      const r = run({ type: "runCapability", caseId: c.id, capabilityId: cap.id, capabilityLabel: cap.label, result });
+      if (r.ok) { render(); toast(`${cap.label}: finding recorded as derived evidence.`); }
+      return r;
+    },
+  });
+}
+
 function decisionForm(caseId) {
   const c = D.caseById(state, caseId);
   if (!c) return;
@@ -979,6 +1104,9 @@ const ACTIONS = {
   "guide-work": () => { closeGuide(); location.href = "/flow"; },
   "focus-problem": () => { const i = $("#solve-input"); if (i) { i.scrollIntoView({ block: "center" }); i.focus(); } },
   "case-value": (b) => caseValueForm(b.dataset.case),
+  "claim-baseline": (b) => claimBaselineForm(b.dataset.case),
+  "claim-driver": (b) => claimDriverForm(b.dataset.case),
+  "run-capability": (b) => runCapabilityForm(b.dataset.case, b.dataset.cap),
   "record-decision": (b) => decisionForm(b.dataset.case),
   "approve": (b) => approveForm(b.dataset.id),
   "record-outcome": (b) => outcomeForm(b.dataset.case),
